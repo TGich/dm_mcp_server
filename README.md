@@ -43,7 +43,7 @@ pip install dm-mcp-server
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/dm-mcp-server.git
+git clone https://github.com/CleanCodeStar/dm_mcp_server.git
 cd dm-mcp-server
 
 # 安装依赖
