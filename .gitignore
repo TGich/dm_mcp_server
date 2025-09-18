@@ -1,0 +1,6 @@
+/.cursorrules
+/.cursor/
+/.venv/
+/dist/
+/dm_mcp_server.egg-info/
+.idea
