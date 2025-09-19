@@ -19,14 +19,14 @@ def read_requirements():
 
 setup(
     name="dm-mcp-server",
-    version="2.0.1",
+    version="2.0.4",
     author="AI Assistant",
     author_email="ai@example.com",
     description="达梦数据库 Model Context Protocol (MCP) 服务器",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
     url="https://github.com/your-username/dm-mcp-server",
-    packages=find_packages(),
+    py_modules=["dm_mcp_server"],
     classifiers=[
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",

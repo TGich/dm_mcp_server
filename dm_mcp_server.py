@@ -5,7 +5,7 @@
 提供完整的达梦数据库操作功能
 
 Author: AI Assistant
-Version: 2.0
+Version: 2.0.4
 """
 
 # ==================== 依赖检查和导入 ====================
@@ -19,9 +19,10 @@ except ImportError:
 
 try:
     import dmPython
+    DM_PYTHON_AVAILABLE = True
 except ImportError:
-    print("错误: 缺少 dmPython 包，请运行: pip install dmPython")
-    exit(1)
+    DM_PYTHON_AVAILABLE = False
+    print("警告: 缺少 dmPython 包，部分功能可能不可用。请运行: pip install dmPython")
 
 # 标准库导入
 from typing import List, Dict, Any, Optional
@@ -43,7 +44,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 创建MCP服务器实例
-mcp = FastMCP("达梦数据库 MCP服务器")
+try:
+    mcp = FastMCP("达梦数据库 MCP服务器")
+    logger.info("MCP服务器实例创建成功")
+except Exception as e:
+    logger.error(f"MCP服务器实例创建失败: {e}")
+    raise
 
 # 全局变量
 DB_CONFIG: Optional[Dict[str, Any]] = None
@@ -54,9 +60,11 @@ operation_history: List[Dict[str, Any]] = []
 
 @contextmanager
 def get_db_connection(host: Optional[str] = None, port: Optional[int] = None, 
-                     user: Optional[str] = None, password: Optional[str] = None, 
-                     database: Optional[str] = None):
+                     user: Optional[str] = None, password: Optional[str] = None):
     """获取数据库连接的上下文管理器"""
+    if not DM_PYTHON_AVAILABLE:
+        raise ImportError("dmPython 不可用，请安装 dmPython 包")
+    
     connection = None
     try:
         if DB_CONFIG:
@@ -200,8 +208,7 @@ def execute_comment_sql(cursor, sql: str, comment: str) -> None:
 
 @mcp.tool()
 def connect_database(host: str = "localhost", port: int = 5236, 
-                    user: str = "SYSDBA", password: str = "", 
-                    database: str = "") -> Dict[str, Any]:
+                    user: str = "SYSDBA", password: str = "") -> Dict[str, Any]:
     """
     连接到达梦数据库
     
@@ -210,7 +217,6 @@ def connect_database(host: str = "localhost", port: int = 5236,
         port: 数据库端口
         user: 数据库用户名
         password: 数据库密码
-        database: 数据库名称
     
     Returns:
         连接结果
@@ -227,7 +233,7 @@ def connect_database(host: str = "localhost", port: int = 5236,
         # 注意：dmPython可能不支持charset等参数，只使用基本参数
         
         # 测试连接
-        with get_db_connection(host, port, user, password, database) as conn:
+        with get_db_connection(host, port, user, password) as conn:
             cursor = conn.cursor()
             # 设置会话字符集
             try:
@@ -245,7 +251,6 @@ def connect_database(host: str = "localhost", port: int = 5236,
                 "host": host,
                 "port": port,
                 "user": user,
-                "database": database or "默认数据库",
                 "timestamp": datetime.datetime.now().isoformat()
             }
             log_operation("connect_database", result)
@@ -315,7 +320,6 @@ def test_connection() -> Dict[str, Any]:
                 "host": DB_CONFIG['host'],
                 "port": DB_CONFIG['port'],
                 "user": DB_CONFIG['user'],
-                "database": DB_CONFIG.get('database', '默认数据库'),
                 "timestamp": datetime.datetime.now().isoformat()
             }
             log_operation("test_connection", result)
@@ -1188,6 +1192,27 @@ def get_operation_history(limit: int = 10) -> Dict[str, Any]:
 
 
 @mcp.tool()
+def check_dependencies() -> Dict[str, Any]:
+    """
+    检查依赖包状态
+    
+    Returns:
+        依赖包状态信息
+    """
+    dependencies = {
+        "mcp": True,  # 如果能运行到这里，说明mcp已经可用
+        "dmPython": DM_PYTHON_AVAILABLE
+    }
+    
+    return {
+        "dependencies": dependencies,
+        "all_available": all(dependencies.values()),
+        "message": "所有依赖可用" if all(dependencies.values()) else "部分依赖缺失",
+        "timestamp": datetime.datetime.now().isoformat()
+    }
+
+
+@mcp.tool()
 def get_server_status() -> Dict[str, Any]:
     """
     获取服务器状态
@@ -1216,7 +1241,6 @@ def get_server_status() -> Dict[str, Any]:
                 "dm_version": version,
                 "host": DB_CONFIG['host'],
                 "port": DB_CONFIG['port'],
-                "database": DB_CONFIG.get('database', '默认数据库'),
                 "query_history_count": len(query_history),
                 "operation_history_count": len(operation_history),
                 "timestamp": datetime.datetime.now().isoformat()
@@ -1354,6 +1378,7 @@ if __name__ == "__main__":
     print("- get_query_history: 获取查询历史")
     print("- get_operation_history: 获取操作历史")
     print("- get_server_status: 获取服务器状态")
+    print("- check_dependencies: 检查依赖包状态")
     print("\n可用资源:")
     print("- dm://schema/{schema_name}: 模式信息")
     print("- dm://table/{table_name}: 表信息")
@@ -1365,9 +1390,15 @@ if __name__ == "__main__":
 
 def main():
     """主函数，用于命令行启动"""
-    print("达梦数据库 MCP 服务器 v2.0.0")
-    print("正在启动服务器...")
-    mcp.run(transport="stdio")
+    try:
+        print("达梦数据库 MCP 服务器 v2.0.4")
+        print("正在启动服务器...")
+        mcp.run(transport="stdio")
+    except Exception as e:
+        print(f"服务器启动失败: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
 
 if __name__ == "__main__":
     main()
