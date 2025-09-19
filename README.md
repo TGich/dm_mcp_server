@@ -9,10 +9,9 @@
 ## 特性
 
 - 🚀 **动态连接**: 无需配置文件，运行时通过工具连接数据库
-- 🔧 **完整功能**: 支持表管理、数据操作、查询执行等完整数据库操作
+- 🎯 **极简设计**: 只保留核心必需工具，避免功能冗余
+- 🔧 **SQL优先**: 所有数据库操作都通过 `execute_sql` 完成，灵活性强
 - 🌏 **中文支持**: 完美支持中文注释和UTF-8编码
-- 📊 **资源管理**: 提供模式、表、状态等资源访问
-- 📝 **操作历史**: 记录查询和操作历史，便于追踪
 - ⚡ **高性能**: 基于FastMCP框架，性能优异
 - 🎯 **uvx支持**: 支持uvx直接运行，无需安装
 
@@ -135,115 +134,73 @@ result = connect_database(
 )
 ```
 
-### 2. 基本操作
+### 2. 基本操作（通过SQL）
 
 #### 创建表
 
 ```python
 # 创建学生表
-columns = [
-    {"name": "id", "type": "INT", "constraints": "PRIMARY KEY"},
-    {"name": "name", "type": "VARCHAR(50)"},
-    {"name": "age", "type": "INT"},
-    {"name": "gender", "type": "VARCHAR(10)"},
-    {"name": "class", "type": "VARCHAR(20)"}
-]
-
-result = create_table(
-    table_name="test_student",
-    columns=columns,
-    schema="test"
+sql = """
+CREATE TABLE test.test_student (
+    id INT PRIMARY KEY,
+    name VARCHAR(50),
+    age INT,
+    gender VARCHAR(10),
+    class VARCHAR(20)
 )
+"""
+result = execute_sql(sql)
 ```
 
 #### 添加中文注释
 
 ```python
 # 为表添加注释
-add_table_comment("test_student", "学生信息表", "test")
+execute_sql("COMMENT ON TABLE test.test_student IS '学生信息表'")
 
 # 为列添加注释
-add_column_comment("test_student", "name", "学生姓名", "test")
-add_column_comment("test_student", "age", "学生年龄", "test")
-add_column_comment("test_student", "gender", "学生性别", "test")
-add_column_comment("test_student", "class", "学生班级", "test")
-
-# 或者使用批量添加注释
-comments = {
-    "table": "学生信息表",
-    "name": "学生姓名",
-    "age": "学生年龄", 
-    "gender": "学生性别",
-    "class": "学生班级"
-}
-batch_add_comments("test_student", comments, "test")
-
-# 测试中文注释功能
-test_chinese_comment("test_student", "测试中文注释", "test")
+execute_sql("COMMENT ON COLUMN test.test_student.name IS '学生姓名'")
+execute_sql("COMMENT ON COLUMN test.test_student.age IS '学生年龄'")
+execute_sql("COMMENT ON COLUMN test.test_student.gender IS '学生性别'")
+execute_sql("COMMENT ON COLUMN test.test_student.class IS '学生班级'")
 ```
 
 #### 插入数据
 
 ```python
 # 插入学生数据
-data = [
-    {"id": 1, "name": "张三", "age": 20, "gender": "男", "class": "计算机1班"},
-    {"id": 2, "name": "李四", "age": 19, "gender": "女", "class": "计算机2班"}
-]
-
-result = insert_data("test_student", data, "test")
+sql = """
+INSERT INTO test.test_student (id, name, age, gender, class) VALUES 
+(1, '张三', 20, '男', '计算机1班'),
+(2, '李四', 19, '女', '计算机2班')
+"""
+result = execute_sql(sql)
 ```
 
 #### 查询数据
 
 ```python
 # 查询所有学生
-result = select_data("test_student", schema="test")
+result = execute_sql("SELECT * FROM test.test_student")
 
 # 条件查询
-result = select_data(
-    "test_student", 
-    where_clause="age > 19",
-    schema="test"
-)
+result = execute_sql("SELECT * FROM test.test_student WHERE age > 19")
 ```
 
-## 可用工具
+## 可用工具（简化版）
 
-### 数据库连接管理
+### 核心工具
 - `connect_database`: 连接到达梦数据库
 - `disconnect_database`: 断开数据库连接
 - `test_connection`: 测试数据库连接
-- `get_database_info`: 获取数据库信息
+- `execute_sql`: 执行自定义SQL语句（核心工具）
+- `check_dependencies`: 检查依赖包状态
 
-### 表管理
-- `create_table`: 创建数据表
-- `describe_table`: 获取表结构信息
-- `drop_table`: 删除数据表
-
-### 数据操作
-- `insert_data`: 插入数据
-- `select_data`: 查询数据
-- `update_data`: 更新数据
-- `delete_data`: 删除数据
-
-### 高级功能
-- `execute_sql`: 执行自定义SQL语句
-- `add_table_comment`: 为表添加中文注释
-- `add_column_comment`: 为列添加中文注释
-- `test_chinese_comment`: 测试中文注释功能
-- `batch_add_comments`: 批量添加中文注释
-
-### 系统管理
-- `get_query_history`: 获取查询历史
-- `get_operation_history`: 获取操作历史
-- `get_server_status`: 获取服务器状态
-
-## 可用资源
-
-- `dm://schema/{schema_name}`: 模式信息
-- `dm://table/{table_name}`: 表信息
-- `dm://status`: 达梦数据库状态信息
+### 设计理念
+- **极简设计**: 只保留核心必需工具，避免功能冗余
+- **SQL优先**: 所有数据库操作都通过 `execute_sql` 完成
+- **灵活性强**: 用户可以使用任何SQL语句，不受工具限制
+- **易于维护**: 减少代码复杂度，提高可维护性
 
 ## 项目结构
 
@@ -349,7 +306,14 @@ MIT License
 
 ## 更新日志
 
-### v2.1 (2024-01-01)
+### v2.1.0 (2024-01-01) - 极简重构版
+- 🎯 **极简设计**: 移除冗余工具，只保留核心必需功能
+- 🔧 **SQL优先**: 所有数据库操作都通过 `execute_sql` 完成
+- 📦 **代码简化**: 大幅减少代码量，提高可维护性
+- ⚡ **性能优化**: 减少不必要的功能，提升运行效率
+- 🛠️ **易于维护**: 简化代码结构，降低维护成本
+
+### v2.0.4 (2024-01-01)
 - ✅ **修复中文注释问题**: 完全解决达梦数据库中文注释编码错误
 - ✅ **增强编码支持**: 添加多种中文编码处理方法
 - ✅ **新增测试工具**: 提供中文注释功能测试
