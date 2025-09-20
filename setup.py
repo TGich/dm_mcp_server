@@ -20,12 +20,12 @@ def read_requirements():
 setup(
     name="dm-mcp-server",
     version="2.1.0",
-    author="AI Assistant",
-    author_email="ai@example.com",
+    author="CleanCode",
+    author_email="15706058532@163.com",
     description="达梦数据库 Model Context Protocol (MCP) 服务器",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
-    url="https://github.com/your-username/dm-mcp-server",
+    url="https://github.com/CleanCodeStar/dm_mcp_server",
     py_modules=["dm_mcp_server"],
     classifiers=[
         "Development Status :: 5 - Production/Stable",
@@ -49,9 +49,9 @@ setup(
     },
     keywords="dameng database mcp model-context-protocol dmPython",
     project_urls={
-        "Bug Reports": "https://github.com/your-username/dm-mcp-server/issues",
-        "Source": "https://github.com/your-username/dm-mcp-server",
-        "Documentation": "https://github.com/your-username/dm-mcp-server#readme",
+        "Bug Reports": "https://github.com/CleanCodeStar/dm_mcp_server/issues",
+        "Source": "https://github.com/CleanCodeStar/dm_mcp_server",
+        "Documentation": "https://github.com/CleanCodeStar/dm_mcp_server#readme",
     },
     include_package_data=True,
     zip_safe=False,
