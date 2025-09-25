@@ -8,6 +8,20 @@ Author: AI Assistant
 Version: 2.1.0
 """
 
+# ==================== 环境设置 ====================
+import os
+import sys
+
+# 设置环境变量确保正确的编码
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+os.environ.setdefault('PYTHONUTF8', '1')
+
+# 设置标准输出编码
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8')
+
 # ==================== 依赖检查和导入 ====================
 
 # 第三方库导入
@@ -39,7 +53,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler()  # 只使用控制台输出，避免文件日志
-    ]
+    ],
+    force=True  # 强制重新配置日志
 )
 logger = logging.getLogger(__name__)
 
@@ -355,29 +370,31 @@ def check_dependencies() -> Dict[str, Any]:
 # ==================== 主程序入口 ====================
 
 if __name__ == "__main__":
-    print("启动达梦数据库 MCP服务器...")
-    print("可用工具:")
-    print("- connect_database: 连接到达梦数据库")
-    print("- disconnect_database: 断开数据库连接")
-    print("- test_connection: 测试数据库连接")
-    print("- execute_sql: 执行自定义SQL（核心工具）")
-    print("- check_dependencies: 检查依赖包状态")
-    print("\n注意: 使用前请先调用 connect_database 工具连接数据库")
-    print("所有数据库操作都可通过 execute_sql 工具完成")
-    print("服务器运行中...")
+    # 使用 logger 而不是 print，避免干扰 MCP 通信
+    logger.info("启动达梦数据库 MCP服务器...")
+    logger.info("可用工具:")
+    logger.info("- connect_database: 连接到达梦数据库")
+    logger.info("- disconnect_database: 断开数据库连接")
+    logger.info("- test_connection: 测试数据库连接")
+    logger.info("- execute_sql: 执行自定义SQL（核心工具）")
+    logger.info("- check_dependencies: 检查依赖包状态")
+    logger.info("注意: 使用前请先调用 connect_database 工具连接数据库")
+    logger.info("所有数据库操作都可通过 execute_sql 工具完成")
+    logger.info("服务器运行中...")
     
     mcp.run(transport="stdio")
 
 def main():
     """主函数，用于命令行启动"""
     try:
-        print("达梦数据库 MCP 服务器 v2.1.0")
-        print("正在启动服务器...")
+        # 使用 logger 而不是 print，避免干扰 MCP 通信
+        logger.info("达梦数据库 MCP 服务器 v2.1.0")
+        logger.info("正在启动服务器...")
         mcp.run(transport="stdio")
     except Exception as e:
-        print(f"服务器启动失败: {e}")
-        import traceback
-        traceback.print_exc()
+        # 使用 logger 记录错误，避免 print 干扰通信
+        logger.error(f"服务器启动失败: {e}")
+        logger.error("详细错误信息:", exc_info=True)
         exit(1)
 
 if __name__ == "__main__":
