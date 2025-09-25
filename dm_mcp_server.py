@@ -155,8 +155,6 @@ def connect_database(host: str = "localhost", port: int = 5236,
             'user': user,
             'password': password
         }
-        # 注意：dmPython可能不支持charset等参数，只使用基本参数
-        
         # 测试连接
         with get_db_connection(host, port, user, password) as conn:
             cursor = conn.cursor()
@@ -259,17 +257,17 @@ def test_connection() -> Dict[str, Any]:
         log_operation("test_connection", error_result, success=False)
         return error_result
 
-
-
-# ==================== 核心工具（简化版） ====================
-
-# ==================== 高级查询工具 ====================
+# ==================== 查询工具 ====================
 
 @mcp.tool()
 def execute_sql(sql: str, fetch_results: bool = True) -> Dict[str, Any]:
     """
     执行自定义SQL语句
-    
+    示例:
+        获取所有模式: SELECT DISTINCT OWNER FROM ALL_OBJECTS WHERE OWNER IS NOT NULL ORDER BY OWNER;
+        获取模式下的所有表: SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = '模式名' ORDER BY TABLE_NAME;
+        查询实例信息: SELECT INSTANCE_NAME, HOST_NAME, START_TIME FROM V$INSTANCE
+
     Args:
         sql: SQL语句
         fetch_results: 是否获取结果集
@@ -340,48 +338,19 @@ def execute_sql(sql: str, fetch_results: bool = True) -> Dict[str, Any]:
         log_operation("execute_sql", {"sql": sql[:100] + "..." if len(sql) > 100 else sql}, success=False)
         return error_result
 
-
 # ==================== 系统管理工具 ====================
 
-
-@mcp.tool()
-def check_dependencies() -> Dict[str, Any]:
-    """
-    检查依赖包状态
-    
-    Returns:
-        依赖包状态信息
-    """
-    dependencies = {
-        "mcp": True,  # 如果能运行到这里，说明mcp已经可用
-        "dmPython": DM_PYTHON_AVAILABLE
-    }
-    
-    return {
-        "dependencies": dependencies,
-        "all_available": all(dependencies.values()),
-        "message": "所有依赖可用" if all(dependencies.values()) else "部分依赖缺失",
-        "timestamp": datetime.datetime.now().isoformat()
-    }
-                    
-
-
-
 # ==================== 主程序入口 ====================
-
 if __name__ == "__main__":
-    # 使用 logger 而不是 print，避免干扰 MCP 通信
     logger.info("启动达梦数据库 MCP服务器...")
     logger.info("可用工具:")
     logger.info("- connect_database: 连接到达梦数据库")
     logger.info("- disconnect_database: 断开数据库连接")
     logger.info("- test_connection: 测试数据库连接")
     logger.info("- execute_sql: 执行自定义SQL（核心工具）")
-    logger.info("- check_dependencies: 检查依赖包状态")
     logger.info("注意: 使用前请先调用 connect_database 工具连接数据库")
     logger.info("所有数据库操作都可通过 execute_sql 工具完成")
     logger.info("服务器运行中...")
-    
     mcp.run(transport="stdio")
 
 def main():
