@@ -1,333 +1,87 @@
 # 达梦数据库 MCP 服务器
 
-[![PyPI version](https://badge.fury.io/py/dm-mcp-server.svg)](https://badge.fury.io/py/dm-mcp-server)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-一个基于 FastMCP 框架的达梦数据库 Model Context Protocol (MCP) 服务器，提供完整的达梦数据库操作功能。
+一个基于 FastMCP 框架的达梦数据库 Model Context Protocol (MCP) 服务器，采用环境变量驱动。
 
 ## 特性
 
-- 🚀 **动态连接**: 无需配置文件，运行时通过工具连接数据库
-- 🎯 **极简设计**: 只保留核心必需工具，避免功能冗余
-- 🔧 **SQL优先**: 所有数据库操作都通过 `execute_sql` 完成，灵活性强
-- 🌏 **中文支持**: 完美支持中文注释和UTF-8编码
-- ⚡ **高性能**: 基于FastMCP框架，性能优异
-- 🎯 **uvx支持**: 支持uvx直接运行，无需安装
+- 🚀 **环境变量配置**: 通过环境变量预设连接信息，安全且高效
+- 🎯 **极致简化**: 只包含 `execute_sql` 和 `test_connection` 核心工具
+- 🌏 **编码友好**: 针对 Windows 及达梦环境优化的 UTF-8 处理
+- ⚡ **现代管理**: 使用 `uv` 进行高效的项目管理与依赖锁定
 
-## 技术栈
+## 快速开始
 
-- **框架**: FastMCP (Model Context Protocol)
-- **数据库**: 达梦数据库 (DM Database)
-- **驱动**: dmPython
-- **语言**: Python 3.8+
-- **依赖**: 仅需 mcp 和 dmPython
+### 1. 安装依赖
 
-## 安装
-
-### 方法一：使用 uvx 运行（推荐）
+推荐使用 `uv` 进行管理：
 
 ```bash
-# 直接运行，无需安装
-uvx dm-mcp-server
+# 同步环境
+uv sync
 ```
 
-### 方法二：从 PyPI 安装
+### 2. 配置环境变量
+
+在启动服务器前，需设置以下环境变量：
+
+| 变量名 | 说明 | 必填 | 默认值 |
+| :-- | :-- | :-- | :-- |
+| `DAMENG_HOST` | 数据库主机地址 | 是 | - |
+| `DAMENG_PORT` | 数据库端口 | 否 | 5236 |
+| `DAMENG_USER` | 用户名 | 是 | - |
+| `DAMENG_PASSWORD` | 密码 | 是 | - |
+| `DAMENG_SCHEMA` | 默认模式 (Schema) | 否 | - |
+
+### 3. 启动服务器
 
 ```bash
-pip install dm-mcp-server
+# Windows (PowerShell)
+$env:DAMENG_HOST="localhost"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD="SYSDBA_PASSWORD"; uv run dm-mcp-server
 ```
 
-### 方法三：从源码安装
+## 在 Cursor / Claude Desktop 中配置
 
-```bash
-# 克隆仓库
-git clone https://github.com/CleanCodeStar/dm_mcp_server.git
-cd dm-mcp-server
+### 使用 `uvx` (推荐方式)
 
-# 安装依赖
-pip install -r requirements.txt
-
-# 安装包
-pip install .
-```
-
-### 方法四：直接运行
-
-```bash
-# 安装依赖
-pip install mcp dmPython
-
-# 直接运行
-python dm_mcp_server.py
-```
-
-## 配置
-
-### Cursor MCP 配置
-
-#### 使用 uvx（推荐）
+将以下配置添加到您的 MCP 配置文件中（如 Cursor 的 `mcpServers` 设置）：
 
 ```json
 {
   "mcpServers": {
     "dm_mcp_server": {
       "command": "uvx",
-      "args": ["dm-mcp-server"]
+      "args": [
+        "dm-mcp-server"
+      ],
+      "env": {
+        "DAMENG_HOST": "192.168.30.86",
+        "DAMENG_PORT": "5236",
+        "DAMENG_USER": "SYSDBA",
+        "DAMENG_PASSWORD": "your_password",
+        "DAMENG_SCHEMA": "your_schema"
+      }
     }
   }
 }
 ```
 
-#### 使用 pip 安装
+### 本地开发配置 (使用 `uv`)
 
-```json
-{
-  "mcpServers": {
-    "dm_mcp_server": {
-      "command": "python",
-      "args": ["-m", "dm_mcp_server"]
-    }
-  }
-}
-```
+## 提供工具
 
-#### 直接运行
+### `test_connection`
+测试当前配置是否能成功连接到达梦数据库。
 
-```json
-{
-  "mcpServers": {
-    "dm_mcp_server": {
-      "command": "python",
-      "args": ["path/to/dm_mcp_server.py"]
-    }
-  }
-}
-```
-
-### 示例配置
-
-```json
-{
-  "mcpServers": {
-    "dm_mcp_server": {
-      "command": "D:\\Python\\Python313\\python.exe",
-      "args": ["E:\\PycharmProjects\\dm_mcp_server\\dm_mcp_server.py"]
-    }
-  }
-}
-```
-
-## 使用方法
-
-### 1. 连接数据库
-
-首先需要连接到数据库：
-
-```python
-# 连接到达梦数据库
-result = connect_database(
-    host="your_host",
-    port=15237,
-    user="SYSDBA",
-    password="your_password"
-)
-```
-
-### 2. 基本操作（通过SQL）
-
-#### 创建表
-
-```python
-# 创建学生表
-sql = """
-CREATE TABLE test.test_student (
-    id INT PRIMARY KEY,
-    name VARCHAR(50),
-    age INT,
-    gender VARCHAR(10),
-    class VARCHAR(20)
-)
-"""
-result = execute_sql(sql)
-```
-
-#### 添加中文注释
-
-```python
-# 为表添加注释
-execute_sql("COMMENT ON TABLE test.test_student IS '学生信息表'")
-
-# 为列添加注释
-execute_sql("COMMENT ON COLUMN test.test_student.name IS '学生姓名'")
-execute_sql("COMMENT ON COLUMN test.test_student.age IS '学生年龄'")
-execute_sql("COMMENT ON COLUMN test.test_student.gender IS '学生性别'")
-execute_sql("COMMENT ON COLUMN test.test_student.class IS '学生班级'")
-```
-
-#### 插入数据
-
-```python
-# 插入学生数据
-sql = """
-INSERT INTO test.test_student (id, name, age, gender, class) VALUES 
-(1, '张三', 20, '男', '计算机1班'),
-(2, '李四', 19, '女', '计算机2班')
-"""
-result = execute_sql(sql)
-```
-
-#### 查询数据
-
-```python
-# 查询所有学生
-result = execute_sql("SELECT * FROM test.test_student")
-
-# 条件查询
-result = execute_sql("SELECT * FROM test.test_student WHERE age > 19")
-```
-
-## 可用工具（简化版）
-
-### 核心工具
-- `connect_database`: 连接到达梦数据库
-- `disconnect_database`: 断开数据库连接
-- `test_connection`: 测试数据库连接
-- `execute_sql`: 执行自定义SQL语句（核心工具）
-- `check_dependencies`: 检查依赖包状态
-
-### 设计理念
-- **极简设计**: 只保留核心必需工具，避免功能冗余
-- **SQL优先**: 所有数据库操作都通过 `execute_sql` 完成
-- **灵活性强**: 用户可以使用任何SQL语句，不受工具限制
-- **易于维护**: 减少代码复杂度，提高可维护性
-
-## 项目结构
-
-```
-dm_mcp_server/
-├── dm_mcp_server.py      # 主服务器文件
-├── requirements.txt      # 依赖包
-├── README.md            # 项目文档
-└── .cursorrules         # Cursor规则文件
-```
-
-## 代码特点
-
-### 1. 清晰的代码结构
-- 按功能模块组织代码
-- 统一的错误处理
-- 完善的类型注解
-
-### 2. 高效的连接管理
-- 动态数据库连接
-- 上下文管理器自动管理连接
-- 连接状态检查
-
-### 3. 完善的日志记录
-- 操作历史追踪
-- 查询历史记录
-- 统一的日志格式
-
-### 4. 中文支持
-- UTF-8编码支持
-- 中文注释功能
-- 参数化查询避免编码问题
-
-## 错误处理
-
-所有工具都提供统一的错误处理：
-
-```json
-{
-  "status": "error",
-  "message": "错误描述",
-  "timestamp": "2024-01-01T00:00:00"
-}
-```
-
-成功响应：
-
-```json
-{
-  "status": "success",
-  "message": "操作成功",
-  "data": {...},
-  "timestamp": "2024-01-01T00:00:00"
-}
-```
-
-## 注意事项
-
-1. **连接要求**: 使用前必须先调用 `connect_database` 工具连接数据库
-2. **权限要求**: 确保数据库用户有足够的权限执行相应操作
-3. **编码支持**: 支持UTF-8编码，中文注释功能完善
-4. **多模式支持**: 支持指定schema参数进行多模式操作
-
-## 常见问题
-
-### Q: 如何解决中文编码问题？
-A: ✅ **已完全修复**！服务器现在支持：
-- 自动设置UTF-8字符集和编码
-- 多种中文注释执行方法（自动重试机制）
-- 专门的中文注释测试工具
-- 批量添加中文注释功能
-- 完善的错误处理和日志记录
-
-### Q: 如何查看操作历史？
-A: 使用 `get_query_history` 和 `get_operation_history` 工具查看历史记录。
-
-### Q: 支持哪些数据库操作？
-A: 支持完整的CRUD操作、表管理、自定义SQL执行等。
-
-## 开发指南
-
-### 添加新工具
-
-1. 使用 `@mcp.tool()` 装饰器
-2. 添加类型注解和文档字符串
-3. 实现连接检查和错误处理
-4. 记录操作历史
-
-### 代码规范
-
-- 使用类型注解 (Type Hints)
-- 遵循PEP 8代码风格
-- 完善的错误处理和日志记录
-- 清晰的函数命名和文档
+### `execute_sql`
+执行任意 SQL 语句。支持：
+- `SELECT` 查询（返回结果列表）
+- `INSERT/UPDATE/DELETE` 操作（返回受影响行数）
+- `DDL` 语句（如 `CREATE TABLE`, `COMMENT ON` 等）
 
 ## 许可证
 
 MIT License
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 更新日志
-
-### v2.1.0 (2024-01-01) - 极简重构版
-- 🎯 **极简设计**: 移除冗余工具，只保留核心必需功能
-- 🔧 **SQL优先**: 所有数据库操作都通过 `execute_sql` 完成
-- 📦 **代码简化**: 大幅减少代码量，提高可维护性
-- ⚡ **性能优化**: 减少不必要的功能，提升运行效率
-- 🛠️ **易于维护**: 简化代码结构，降低维护成本
-
-### v2.0.4 (2024-01-01)
-- ✅ **修复中文注释问题**: 完全解决达梦数据库中文注释编码错误
-- ✅ **增强编码支持**: 添加多种中文编码处理方法
-- ✅ **新增测试工具**: 提供中文注释功能测试
-- ✅ **批量注释功能**: 支持一次性添加多个注释
-- ✅ **自动重试机制**: 多种方法自动尝试执行注释SQL
-
-### v2.0 (2024-01-01)
-- 重构代码结构，提高可维护性
-- 优化错误处理和日志记录
-- 移除冗余代码和文件
-- 完善文档和注释
-
-### v1.0 (2023-12-01)
-- 初始版本发布
-- 支持基本数据库操作
-- 中文注释支持
-- FastMCP框架集成
