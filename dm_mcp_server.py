@@ -163,16 +163,61 @@ def _validate_sql_security(sql: str, allowed_schemas: Optional[List[str]]) -> Op
             logger.warning("SQL 安全拦截: %s | SQL: %.200s", msg, sql)
             return msg
 
+def _extract_aliases(sql: str) -> set:
+    aliases = set()
+    patterns = [
+        re.compile(r'\b(?:FROM|JOIN)\s+(?:"[^"]+"\s*\.\s*)?(\w+)\s+(?:AS\s+)?(\w+)', re.IGNORECASE),
+        re.compile(r'\bUPDATE\s+(?:"[^"]+"\s*\.\s*)?(\w+)\s+(?:AS\s+)?(\w+)', re.IGNORECASE),
+    ]
+    for p in patterns:
+        for m in p.finditer(sql):
+            for g in m.groups():
+                if g:
+                    aliases.add(g.upper())
+    return aliases
+
+
+def _validate_sql_security(sql: str, allowed_schemas: Optional[List[str]]) -> Optional[str]:
+    sql_upper = sql.upper().strip()
+
+    for pattern in DANGEROUS_PATTERNS:
+        if pattern.search(sql):
+            msg = "安全性限制：SQL 包含潜在的注入风险模式，已被拦截"
+            logger.warning("SQL 安全拦截: %s | SQL: %.200s", msg, sql)
+            return msg
+
     if "." in sql:
-        tokens = re.findall(r'"([^"]+)"\.\w+|(\w+)\.\w+', sql)
-        for quoted, unquoted in tokens:
-            name = (quoted or unquoted).upper()
+        aliases = _extract_aliases(sql)
+        quoted_refs = re.findall(r'"([^"]+)"\s*\.\s*"?(\w+)"?', sql)
+        unquoted_refs = re.findall(r'(?<!")\b([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\b', sql)
+
+        checked = set()
+        for name, _ in quoted_refs:
+            name_upper = name.upper()
+            if name_upper in checked:
+                continue
+            checked.add(name_upper)
             if allowed_schemas:
-                if name not in allowed_schemas:
+                if name_upper not in allowed_schemas:
                     return f"安全性限制：禁止跨SCHEMA操作，'{name}' 不在允许列表中"
             else:
                 default = DB_CONFIG.get('schema', '').upper()
-                if name != default:
+                if name_upper != default:
+                    return f"安全性限制：禁止跨SCHEMA操作。仅允许操作模式: {default}"
+
+        for name, _ in unquoted_refs:
+            name_upper = name.upper()
+            if name_upper in checked:
+                continue
+            if name_upper in aliases:
+                continue
+            checked.add(name_upper)
+            if allowed_schemas:
+                if name_upper not in allowed_schemas:
+                    return f"安全性限制：禁止跨SCHEMA操作，'{name}' 不在允许列表中"
+            else:
+                default = DB_CONFIG.get('schema', '').upper()
+                if name_upper != default:
                     return f"安全性限制：禁止跨SCHEMA操作。仅允许操作模式: {default}"
 
     owner_match = re.search(r"OWNER\s*[=<>]+\s*['\"](.+?)['\"]", sql_upper)
