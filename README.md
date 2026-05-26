@@ -9,11 +9,15 @@
 ## 🌟 特性
 
 - 🚀 **环境变量驱动**: 全面通过环境变量配置，无需手动调用连接工具，即插即用。
-- 🛡️ **深度安全审计**: 
+- 🛡️ **深度安全审计**:
   - 强制锁定配置的 `DAMENG_SCHEMA`。
   - 自动拦截跨模式 (Cross-Schema) 访问尝试。
   - 禁止在元数据查询中尝试过滤非本模式的信息。
-- 🛠️ **多维工具集**: 提供从基础 SQL 执行到模式元数据管理的 5 大核心工具。
+  - SQL 注入风险模式检测（多语句注入、注释注入、存储过程调用等）。
+- 🔀 **多 Schema 支持**: 支持配置多个允许的 Schema，可在允许范围内自由切换。
+- 🔒 **只读模式**: 可选开启只读模式，禁止所有写操作（INSERT/UPDATE/DELETE/DDL）。
+- 📄 **分页查询**: `execute_sql` 支持 `limit` / `offset` 参数，避免大数据量一次性返回。
+- 🛠️ **多维工具集**: 提供从基础 SQL 执行到模式元数据管理的 7 大核心工具。
 - 🌏 **编码优化**: 针对 Windows 终端及达梦 `UTF-8` 编码进行了专项适配。
 - ⚡ **现代管理**: 使用 `uv` 进行依赖锁定与高性能运行时管理。
 
@@ -29,7 +33,7 @@ uv sync
 
 ### 2. 配置环境变量
 
-服务器在启动时会读取以下环境变量。请确保在调用前已正确设置：
+服务器在启动时会读取以下环境变量：
 
 | 变量名 | 说明 | 必填 | 默认值 |
 | :-- | :-- | :-- | :-- |
@@ -37,38 +41,57 @@ uv sync
 | `DAMENG_PORT` | 数据库端口 | 否 | 5236 |
 | `DAMENG_USER` | 数据库用户名 | **是** | - |
 | `DAMENG_PASSWORD` | 数据库密码 | **是** | - |
-| `DAMENG_SCHEMA` | 操作模式 (Schema) | **是** | 核心工具必须提供 |
+| `DAMENG_SCHEMA` | 默认操作模式 | **是** | - |
+| `DAMENG_ALLOWED_SCHEMAS` | 允许访问的模式列表（逗号分隔） | 否 | 仅 `DAMENG_SCHEMA` |
+| `DAMENG_READ_ONLY` | 只读模式（true/false） | 否 | false |
+| `DAMENG_LOG_LEVEL` | 日志级别（DEBUG/INFO/WARNING/ERROR） | 否 | INFO |
 
 ### 3. 运行服务器
 
 ```bash
-# Windows (PowerShell 示例)
+# Windows (PowerShell 示例) - 单 Schema 模式
 $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD="your_password"; $env:DAMENG_SCHEMA="your_schema"; uv run dm-mcp-server
+
+# Windows (PowerShell 示例) - 多 Schema + 只读模式
+$env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD="your_password"; $env:DAMENG_SCHEMA="schema_a"; $env:DAMENG_ALLOWED_SCHEMAS="schema_a,schema_b,schema_c"; $env:DAMENG_READ_ONLY="true"; uv run dm-mcp-server
 ```
 
 ## 🛠️ 提供工具
 
-服务器暴露了以下 5 个工具供 LLM 调用：
+服务器暴露了以下 7 个工具供 LLM 调用：
 
 1. **`test_connection`**
-   - **功能**: 验证当前环境变量配置是否能成功连接到达梦数据库。
+   - **功能**: 验证数据库连接状态，返回当前 Schema、允许的 Schema 列表、只读模式状态。
+
 2. **`execute_sql`**
-   - **参数**: `sql` (字符串), `fetch_results` (布尔值，默认 true)。
-   - **功能**: 执行任意 SQL 语句。涉及 `SELECT` 时返回字典列表。内置正则安全审查。
+   - **参数**: `sql` (字符串), `fetch_results` (布尔值，默认 true), `limit` (整数，可选), `offset` (整数，可选)。
+   - **功能**: 执行 SQL 语句。涉及 `SELECT` 时返回字典列表。支持分页。内置多层安全审查（注入检测、跨 Schema 检测、只读模式检测）。
+
 3. **`list_tables`**
-   - **功能**: 列出当前配置模式 (`DAMENG_SCHEMA`) 下的所有表名。
+   - **参数**: `schema` (字符串，可选)。
+   - **功能**: 列出指定模式下的所有表名。不指定则查询默认 Schema。
+
 4. **`count_tables`**
-   - **功能**: 快速统计当前模式下的总表数。
+   - **参数**: `schema` (字符串，可选)。
+   - **功能**: 统计指定模式下的总表数。不指定则统计默认 Schema。
+
 5. **`get_current_schema`**
-   - **功能**: 返回当前服务器锁定的模式名称。
+   - **功能**: 返回当前 Schema、允许的 Schema 列表、只读模式状态。
+
+6. **`switch_schema`**
+   - **参数**: `schema` (字符串)。
+   - **功能**: 切换当前操作的 Schema。仅在配置了 `DAMENG_ALLOWED_SCHEMAS` 时可用，且目标 Schema 必须在允许列表中。
 
 ## 🔒 安全性说明
 
 为了防止非授权的数据访问，本服务器实施了以下安全策略：
 
 - **模式隔离**: 所有 SQL 操作在执行前，都会通过 `SET SCHEMA` 显式切换到环境变量指定的模式。
-- **防止注入**: 拦截包含点号 (`.`) 前缀且非当前模式的 SQL 标识符（例如禁止在 A 模式下查询 `B.TABLE`）。
-- **元数据保护**: 在查询 `ALL_TABLES` 等系统视图时，如果检测到试图查询非本模式的 `OWNER`，将直接拦截。
+- **多 Schema 白名单**: 通过 `DAMENG_ALLOWED_SCHEMAS` 配置允许访问的 Schema 列表，未在列表中的 Schema 一律拒绝。
+- **SQL 注入防护**: 检测并拦截常见的 SQL 注入模式，包括多语句注入（`;`）、注释注入（`--`、`/*`）、存储过程调用（`EXEC`、`CALL`、`xp_`、`sp_`）等。
+- **跨 Schema 检测**: 拦截包含点号 (`.`) 前缀且非允许模式的 SQL 标识符（例如禁止查询 `OTHER_SCHEMA.TABLE`）。
+- **元数据保护**: 在查询 `ALL_TABLES` 等系统视图时，如果检测到试图查询非允许模式的 `OWNER`，将直接拦截。
+- **只读模式**: 开启后，仅允许 `SELECT`、`WITH`、`EXPLAIN`、`SHOW`、`DESCRIBE` 等查询语句，禁止所有写操作和 DDL。
 
 ## 在 Cursor / Claude Desktop / Antigravity / Trae 中配置
 
@@ -90,6 +113,31 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
         "DAMENG_USER": "SYSDBA",
         "DAMENG_PASSWORD": "your_password",
         "DAMENG_SCHEMA": "your_schema"
+      }
+    }
+  }
+}
+```
+
+### 多 Schema + 只读模式配置示例
+
+```json
+{
+  "mcpServers": {
+    "dm_mcp_server": {
+      "command": "uvx",
+      "args": [
+        "dm-mcp-server"
+      ],
+      "env": {
+        "DAMENG_HOST": "192.168.x.x",
+        "DAMENG_PORT": "5236",
+        "DAMENG_USER": "SYSDBA",
+        "DAMENG_PASSWORD": "your_password",
+        "DAMENG_SCHEMA": "schema_a",
+        "DAMENG_ALLOWED_SCHEMAS": "schema_a,schema_b,schema_c",
+        "DAMENG_READ_ONLY": "false",
+        "DAMENG_LOG_LEVEL": "INFO"
       }
     }
   }
