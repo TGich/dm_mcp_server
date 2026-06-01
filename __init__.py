@@ -10,7 +10,7 @@ Author: CleanCode
 Version: 2.4.0
 """
 
-__version__ = "2.4.1"
+__version__ = "2.5.0"
 __author__ = "CleanCode"
 __email__ = "15706058532@163.com"
 __description__ = "达梦数据库 Model Context Protocol (MCP) 服务器"

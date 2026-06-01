@@ -154,15 +154,6 @@ def resp(status: str, **kwargs):
     }
 
 
-def _validate_sql_security(sql: str, allowed_schemas: Optional[List[str]]) -> Optional[str]:
-    sql_upper = sql.upper().strip()
-
-    for pattern in DANGEROUS_PATTERNS:
-        if pattern.search(sql):
-            msg = f"安全性限制：SQL 包含潜在的注入风险模式，已被拦截"
-            logger.warning("SQL 安全拦截: %s | SQL: %.200s", msg, sql)
-            return msg
-
 def _extract_aliases(sql: str) -> set:
     aliases = set()
     patterns = [
@@ -244,6 +235,32 @@ def _check_read_only(sql: str) -> Optional[str]:
     return None
 
 
+def _prefix_schema_for_ddl(sql: str, schema: str) -> str:
+    sql_upper = sql.upper().strip()
+    ddl_prefixes = {
+        'CREATE TABLE': r'(CREATE\s+TABLE\s+)(?!"[^"]+"\.)("?\w+"?)',
+        'DROP TABLE': r'(DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?)(?!"[^"]+"\.)("?\w+"?)',
+        'ALTER TABLE': r'(ALTER\s+TABLE\s+)(?!"[^"]+"\.)("?\w+"?)',
+        'CREATE INDEX': r'(CREATE\s+(?:UNIQUE\s+)?INDEX\s+\S+\s+ON\s+)(?!"[^"]+"\.)("?\w+"?)',
+        'DROP INDEX': None,
+        'TRUNCATE TABLE': r'(TRUNCATE\s+TABLE\s+)(?!"[^"]+"\.)("?\w+"?)',
+        'COMMENT ON TABLE': r'(COMMENT\s+ON\s+TABLE\s+)(?!"[^"]+"\.)("?\w+"?)',
+        'COMMENT ON COLUMN': r'(COMMENT\s+ON\s+COLUMN\s+)(?!"[^"]+"\.)("?\w+"?)',
+    }
+
+    for keyword, pattern in ddl_prefixes.items():
+        if sql_upper.startswith(keyword) and pattern:
+            match = re.search(pattern, sql, re.IGNORECASE)
+            if match:
+                prefix = match.group(1)
+                table_name = match.group(2)
+                if '.' not in table_name:
+                    new_sql = sql[:match.start(2)] + f'"{schema}".' + table_name + sql[match.end(2):]
+                    logger.info("DDL 自动添加 Schema 前缀: %s → %s", table_name, f'"{schema}".{table_name}')
+                    return new_sql
+    return sql
+
+
 @mcp.tool()
 def test_connection() -> Dict[str, Any]:
     """测试数据库连接状态"""
@@ -299,6 +316,10 @@ def execute_sql(
 
     sql_upper = sql.upper().strip()
     is_select = sql_upper.startswith(('SELECT', 'WITH'))
+    is_ddl = sql_upper.startswith(('CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'COMMENT'))
+
+    if is_ddl:
+        sql = _prefix_schema_for_ddl(sql, schema)
 
     if is_select and fetch_results and (limit is not None or offset is not None):
         effective_limit = limit if limit is not None else 1000
@@ -309,6 +330,7 @@ def execute_sql(
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
+            cursor.execute(f"SET SCHEMA \"{schema}\"")
             cursor.execute(sql)
             if fetch_results and is_select:
                 if limit is None and offset is None:
