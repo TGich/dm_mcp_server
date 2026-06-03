@@ -7,3 +7,5 @@
 /build/
 /.trae/
 /__pycache__
+/test_report.xlsx
+/tests/

@@ -2,7 +2,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![uv](https://img.shields.io/badge/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
 一个基于 FastMCP 框架的达梦数据库 Model Context Protocol (MCP) 服务器。该服务器采用环境变量驱动，深度结合达梦数据库特性，并内置严格的安全审计机制。
 
@@ -14,6 +14,7 @@
   - 自动拦截跨模式 (Cross-Schema) 访问尝试。
   - 禁止在元数据查询中尝试过滤非本模式的信息。
   - SQL 注入风险模式检测（多语句注入、注释注入、存储过程调用等）。
+  - 精细化 DDL/DCL 权限控制（允许表/索引管理，拦截 TRUNCATE/GRANT/REVOKE 等危险操作）。
 - 🔀 **多 Schema 支持**: 支持配置多个允许的 Schema，可在允许范围内自由切换。
 - 🔒 **只读模式**: 可选开启只读模式，禁止所有写操作（INSERT/UPDATE/DELETE/DDL）。
 - 📄 **分页查询**: `execute_sql` 支持 `limit` / `offset` 参数，避免大数据量一次性返回。
@@ -92,6 +93,10 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
 - **跨 Schema 检测**: 拦截包含点号 (`.`) 前缀且非允许模式的 SQL 标识符（例如禁止查询 `OTHER_SCHEMA.TABLE`）。
 - **元数据保护**: 在查询 `ALL_TABLES` 等系统视图时，如果检测到试图查询非允许模式的 `OWNER`，将直接拦截。
 - **只读模式**: 开启后，仅允许 `SELECT`、`WITH`、`EXPLAIN`、`SHOW`、`DESCRIBE` 等查询语句，禁止所有写操作和 DDL。
+- **DDL/DCL 精细化控制** (v2.6.0+):
+  - **允许**: `CREATE TABLE`、`ALTER TABLE`、`DROP TABLE`、`CREATE INDEX`、`ALTER INDEX`、`DROP INDEX`、`RENAME`、`COMMENT ON`、`TRUNCATE`。
+  - **拦截**: `GRANT`/`REVOKE`（权限变更）、`CREATE VIEW/PROCEDURE` 等非 TABLE/INDEX 类型的 DDL。
+  - **智能识别**: 正确区分 SQL 字符串值中的关键词与实际 DDL/DCL 语句，INSERT/UPDATE 中包含如 `'DROP TABLE x'` 的字符串值不会被误拦截。
 
 ## 在 Cursor / Claude Desktop / Antigravity / Trae 中配置
 

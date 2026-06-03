@@ -10,7 +10,7 @@ import re
 import sys
 import datetime
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Set
 from contextlib import contextmanager
 from mcp.server.fastmcp import FastMCP
 
@@ -40,16 +40,30 @@ mcp = FastMCP("Dameng-MCP")
 
 READONLY_KEYWORDS = {"SELECT", "WITH", "EXPLAIN", "SHOW", "DESC", "DESCRIBE"}
 
-DANGEROUS_PATTERNS = [
-    re.compile(r";\s*\w", re.IGNORECASE),
-    re.compile(r"--", re.IGNORECASE),
-    re.compile(r"/\*", re.IGNORECASE),
-    re.compile(r"\bEXEC(UTE)?\b", re.IGNORECASE),
-    re.compile(r"\bCALL\b", re.IGNORECASE),
-    re.compile(r"\b xp_", re.IGNORECASE),
-    re.compile(r"\b sp_", re.IGNORECASE),
-    re.compile(r"\bINJECTION\b", re.IGNORECASE),
-]
+Token = Tuple[str, str]
+IDENT_TOKEN_KINDS = {"IDENT", "QUOTED_IDENT"}
+RELATION_KEYWORDS = {"FROM", "JOIN", "UPDATE", "INTO", "USING"}
+JOIN_MODIFIERS = {
+    "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "NATURAL",
+    "STRAIGHT_JOIN",
+}
+CLAUSE_KEYWORDS = {
+    "WHERE", "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET", "FETCH",
+    "UNION", "INTERSECT", "EXCEPT", "MINUS", "CONNECT", "START",
+    "MODEL", "QUALIFY", "WINDOW", "RETURNING", "VALUES", "SET", "ON",
+    "USING", "WHEN", "ELSE", "END",
+}
+RESERVED_ALIAS_WORDS = CLAUSE_KEYWORDS | JOIN_MODIFIERS | {
+    "AS", "SELECT", "WITH", "FROM", "JOIN", "UPDATE", "INSERT", "INTO",
+    "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "COMMENT", "TABLE",
+    "VIEW", "INDEX", "BY", "AND", "OR", "NOT", "NULL", "IS", "IN",
+}
+METADATA_OWNER_VIEWS = {
+    "ALL_TABLES", "ALL_TAB_COLUMNS", "ALL_OBJECTS", "ALL_VIEWS",
+    "ALL_INDEXES", "ALL_CONSTRAINTS", "ALL_CONS_COLUMNS",
+    "DBA_TABLES", "DBA_TAB_COLUMNS", "DBA_OBJECTS", "DBA_VIEWS",
+    "DBA_INDEXES", "USER_TABLES", "USER_TAB_COLUMNS", "USER_OBJECTS",
+}
 
 
 def _parse_bool(val: str) -> bool:
@@ -154,73 +168,391 @@ def resp(status: str, **kwargs):
     }
 
 
-def _extract_aliases(sql: str) -> set:
-    aliases = set()
-    patterns = [
-        re.compile(r'\b(?:FROM|JOIN)\s+(?:"[^"]+"\s*\.\s*)?(\w+)\s+(?:AS\s+)?(\w+)', re.IGNORECASE),
-        re.compile(r'\bUPDATE\s+(?:"[^"]+"\s*\.\s*)?(\w+)\s+(?:AS\s+)?(\w+)', re.IGNORECASE),
-    ]
-    for p in patterns:
-        for m in p.finditer(sql):
-            for g in m.groups():
-                if g:
-                    aliases.add(g.upper())
-    return aliases
+def _is_identifier_start(ch: str) -> bool:
+    return ch == "_" or ch.isalpha()
+
+
+def _is_identifier_part(ch: str) -> bool:
+    return ch == "_" or ch == "$" or ch == "#" or ch.isalnum()
+
+
+def _tokenize_sql(sql: str) -> List[Token]:
+    tokens: List[Token] = []
+    i = 0
+    length = len(sql)
+
+    while i < length:
+        ch = sql[i]
+
+        if ch.isspace():
+            i += 1
+            continue
+
+        if ch == "'":
+            i += 1
+            value = []
+            while i < length:
+                if sql[i] == "'":
+                    if i + 1 < length and sql[i + 1] == "'":
+                        value.append("'")
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                value.append(sql[i])
+                i += 1
+            tokens.append(("STRING", "".join(value)))
+            continue
+
+        if ch == '"':
+            i += 1
+            value = []
+            while i < length:
+                if sql[i] == '"':
+                    if i + 1 < length and sql[i + 1] == '"':
+                        value.append('"')
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                value.append(sql[i])
+                i += 1
+            tokens.append(("QUOTED_IDENT", "".join(value)))
+            continue
+
+        if ch == "-" and i + 1 < length and sql[i + 1] == "-":
+            end = sql.find("\n", i + 2)
+            if end == -1:
+                end = length
+            tokens.append(("COMMENT", sql[i:end]))
+            i = end
+            continue
+
+        if ch == "/" and i + 1 < length and sql[i + 1] == "*":
+            end = sql.find("*/", i + 2)
+            if end == -1:
+                end = length - 2
+            tokens.append(("COMMENT", sql[i:end + 2]))
+            i = end + 2
+            continue
+
+        if _is_identifier_start(ch):
+            start = i
+            i += 1
+            while i < length and _is_identifier_part(sql[i]):
+                i += 1
+            tokens.append(("IDENT", sql[start:i]))
+            continue
+
+        if ch.isdigit():
+            start = i
+            i += 1
+            while i < length and (sql[i].isdigit() or sql[i] == "."):
+                i += 1
+            tokens.append(("NUMBER", sql[start:i]))
+            continue
+
+        token_type = {
+            ".": "DOT",
+            ",": "COMMA",
+            "(": "LPAREN",
+            ")": "RPAREN",
+            ";": "SEMICOLON",
+        }.get(ch, "SYMBOL")
+        tokens.append((token_type, ch))
+        i += 1
+
+    return tokens
+
+
+def _token_upper(token: Token) -> str:
+    return token[1].upper()
+
+
+def _is_identifier(token: Token) -> bool:
+    return token[0] in IDENT_TOKEN_KINDS
+
+
+def _identifier_chain(tokens: List[Token], index: int) -> Tuple[List[str], int]:
+    if index >= len(tokens) or not _is_identifier(tokens[index]):
+        return [], index
+
+    names = [tokens[index][1]]
+    index += 1
+    while (
+        index + 1 < len(tokens)
+        and tokens[index][0] == "DOT"
+        and _is_identifier(tokens[index + 1])
+    ):
+        names.append(tokens[index + 1][1])
+        index += 2
+    return names, index
+
+
+def _find_matching_paren(tokens: List[Token], index: int) -> int:
+    depth = 0
+    for i in range(index, len(tokens)):
+        if tokens[i][0] == "LPAREN":
+            depth += 1
+        elif tokens[i][0] == "RPAREN":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(tokens) - 1
+
+
+def _maybe_alias(tokens: List[Token], index: int) -> Tuple[Optional[str], int]:
+    if index < len(tokens) and _token_upper(tokens[index]) == "AS":
+        index += 1
+
+    if index < len(tokens) and _is_identifier(tokens[index]):
+        alias = tokens[index][1]
+        if alias.upper() not in RESERVED_ALIAS_WORDS:
+            return alias, index + 1
+    return None, index
+
+
+def _collect_cte_names(tokens: List[Token]) -> Set[str]:
+    ctes: Set[str] = set()
+    i = 0
+    while i < len(tokens):
+        if _token_upper(tokens[i]) != "WITH":
+            i += 1
+            continue
+
+        i += 1
+        if i < len(tokens) and _token_upper(tokens[i]) == "RECURSIVE":
+            i += 1
+
+        while i < len(tokens):
+            if not _is_identifier(tokens[i]):
+                break
+
+            cte_name = tokens[i][1].upper()
+            next_index = i + 1
+            if next_index < len(tokens) and tokens[next_index][0] == "LPAREN":
+                next_index = _find_matching_paren(tokens, next_index) + 1
+
+            if next_index >= len(tokens) or _token_upper(tokens[next_index]) != "AS":
+                break
+
+            ctes.add(cte_name)
+            next_index += 1
+            if next_index >= len(tokens) or tokens[next_index][0] != "LPAREN":
+                break
+
+            i = _find_matching_paren(tokens, next_index) + 1
+            if i < len(tokens) and tokens[i][0] == "COMMA":
+                i += 1
+                continue
+            break
+
+        break
+
+    return ctes
+
+
+def _collect_local_qualifiers(tokens: List[Token]) -> Set[str]:
+    qualifiers = _collect_cte_names(tokens)
+    i = 0
+    expect_relation = False
+
+    while i < len(tokens):
+        upper = _token_upper(tokens[i])
+
+        if upper == "COMMENT" and i + 2 < len(tokens) and _token_upper(tokens[i + 1]) == "ON":
+            target_type = _token_upper(tokens[i + 2])
+            if target_type in {"TABLE", "COLUMN", "INDEX"}:
+                ni = i + 3
+                names, ni = _identifier_chain(tokens, ni)
+                for n in names:
+                    qualifiers.add(n.upper())
+            i += 3
+            continue
+
+        if upper == "RENAME" and i + 1 < len(tokens):
+            names, ni = _identifier_chain(tokens, i + 1)
+            for n in names:
+                qualifiers.add(n.upper())
+            if ni < len(tokens) and _token_upper(tokens[ni]) == "TO":
+                ni += 1
+                names2, ni = _identifier_chain(tokens, ni)
+                for n in names2:
+                    qualifiers.add(n.upper())
+            i = ni
+            continue
+
+        if upper in JOIN_MODIFIERS:
+            i += 1
+            continue
+
+        if upper in RELATION_KEYWORDS or (expect_relation and tokens[i][0] == "COMMA"):
+            expect_relation = False
+            i += 1
+
+            if i < len(tokens) and tokens[i][0] == "LPAREN":
+                close_index = _find_matching_paren(tokens, i)
+                alias, next_index = _maybe_alias(tokens, close_index + 1)
+                if alias:
+                    qualifiers.add(alias.upper())
+                i = next_index
+                expect_relation = i < len(tokens) and tokens[i][0] == "COMMA"
+                continue
+
+            names, next_index = _identifier_chain(tokens, i)
+            if names:
+                qualifiers.add(names[-1].upper())
+                alias, next_index = _maybe_alias(tokens, next_index)
+                if alias:
+                    qualifiers.add(alias.upper())
+                i = next_index
+                expect_relation = i < len(tokens) and tokens[i][0] == "COMMA"
+                continue
+
+        if upper == "FROM":
+            expect_relation = True
+        i += 1
+
+    return qualifiers
+
+
+def _outside_literal_danger(tokens: List[Token]) -> Optional[str]:
+    for index, token in enumerate(tokens):
+        kind, value = token
+        upper = value.upper()
+
+        if kind == "COMMENT":
+            return "安全性限制：SQL 包含潜在的注入风险模式，已被拦截"
+
+        if kind == "SEMICOLON":
+            if any(t[0] not in {"COMMENT"} for t in tokens[index + 1:]):
+                return "安全性限制：SQL 包含潜在的注入风险模式，已被拦截"
+
+        if kind == "IDENT":
+            if upper in {"EXEC", "EXECUTE", "CALL", "INJECTION"}:
+                return "安全性限制：SQL 包含潜在的注入风险模式，已被拦截"
+            if upper.startswith("XP_") or upper.startswith("SP_"):
+                return "安全性限制：SQL 包含潜在的注入风险模式，已被拦截"
+
+    return None
+
+
+def _metadata_owner_filter_error(
+    tokens: List[Token],
+    allowed_schemas: Optional[List[str]],
+) -> Optional[str]:
+    references_metadata = any(
+        _is_identifier(token) and _token_upper(token) in METADATA_OWNER_VIEWS
+        for token in tokens
+    )
+    if not references_metadata:
+        return None
+
+    allowed = allowed_schemas
+    default = (DB_CONFIG or {}).get('schema', '').upper()
+
+    for i, token in enumerate(tokens):
+        if not (_is_identifier(token) and _token_upper(token) == "OWNER"):
+            continue
+        if i + 2 >= len(tokens) or tokens[i + 2][0] != "STRING":
+            continue
+        if tokens[i + 1][1] not in {"=", "<", ">"}:
+            continue
+
+        found_owner = tokens[i + 2][1].strip().upper()
+        if allowed:
+            if found_owner not in allowed:
+                return f"安全性限制：禁止查询非允许SCHEMA ({', '.join(allowed)}) 的元数据"
+        elif found_owner != default:
+            return f"安全性限制：禁止查询非本SCHEMA ({default}) 的元数据"
+
+    return None
+
+
+def _qualified_identifier_error(
+    tokens: List[Token],
+    allowed_schemas: Optional[List[str]],
+) -> Optional[str]:
+    local_qualifiers = _collect_local_qualifiers(tokens)
+    default = (DB_CONFIG or {}).get('schema', '').upper()
+
+    checked = set()
+    for i, token in enumerate(tokens[:-2]):
+        if not _is_identifier(token):
+            continue
+        if tokens[i + 1][0] != "DOT" or not _is_identifier(tokens[i + 2]):
+            continue
+
+        qualifier = token[1]
+        qualifier_upper = qualifier.upper()
+        if qualifier_upper in checked:
+            continue
+        checked.add(qualifier_upper)
+
+        if qualifier_upper in local_qualifiers:
+            continue
+
+        if allowed_schemas:
+            if qualifier_upper not in allowed_schemas:
+                return f"安全性限制：禁止跨SCHEMA操作，'{qualifier}' 不在允许列表中"
+        elif qualifier_upper != default:
+            return f"安全性限制：禁止跨SCHEMA操作。仅允许操作模式: {default}"
+
+    return None
+
+
+BLOCKED_STATEMENT_STARTS = {"GRANT", "REVOKE"}
+ALLOWED_CREATE_TYPES = {"TABLE", "INDEX"}
+ALLOWED_ALTER_TYPES = {"TABLE", "INDEX"}
+ALLOWED_DROP_TYPES = {"TABLE", "INDEX"}
+
+
+def _ddl_dcl_check(tokens: List[Token]) -> Optional[str]:
+    if not tokens:
+        return None
+    first_upper = _token_upper(tokens[0])
+
+    if first_upper in BLOCKED_STATEMENT_STARTS:
+        return f"安全性限制：禁止执行 {first_upper} 操作，该语句已被拦截"
+
+    if first_upper == "CREATE":
+        second = _token_upper(tokens[1]) if len(tokens) > 1 else ""
+        if second not in ALLOWED_CREATE_TYPES:
+            return f"安全性限制：禁止执行 CREATE {second} 操作，仅允许 CREATE TABLE / CREATE INDEX"
+
+    if first_upper == "ALTER":
+        second = _token_upper(tokens[1]) if len(tokens) > 1 else ""
+        if second not in ALLOWED_ALTER_TYPES:
+            return f"安全性限制：禁止执行 ALTER {second} 操作，仅允许 ALTER TABLE / ALTER INDEX"
+
+    if first_upper == "DROP":
+        second = _token_upper(tokens[1]) if len(tokens) > 1 else ""
+        if second not in ALLOWED_DROP_TYPES:
+            return f"安全性限制：禁止执行 DROP {second} 操作，仅允许 DROP TABLE / DROP INDEX"
+
+    return None
 
 
 def _validate_sql_security(sql: str, allowed_schemas: Optional[List[str]]) -> Optional[str]:
-    sql_upper = sql.upper().strip()
+    tokens = _tokenize_sql(sql)
 
-    for pattern in DANGEROUS_PATTERNS:
-        if pattern.search(sql):
-            msg = "安全性限制：SQL 包含潜在的注入风险模式，已被拦截"
-            logger.warning("SQL 安全拦截: %s | SQL: %.200s", msg, sql)
-            return msg
+    ddl_err = _ddl_dcl_check(tokens)
+    if ddl_err:
+        logger.warning("SQL 安全拦截: %s | SQL: %.200s", ddl_err, sql)
+        return ddl_err
 
-    if "." in sql:
-        aliases = _extract_aliases(sql)
-        quoted_refs = re.findall(r'"([^"]+)"\s*\.\s*"?(\w+)"?', sql)
-        unquoted_refs = re.findall(r'(?<!")\b([A-Za-z_]\w*)\s*\.\s*([A-Za-z_]\w*)\b', sql)
+    dangerous_err = _outside_literal_danger(tokens)
+    if dangerous_err:
+        logger.warning("SQL 安全拦截: %s | SQL: %.200s", dangerous_err, sql)
+        return dangerous_err
 
-        checked = set()
-        for name, _ in quoted_refs:
-            name_upper = name.upper()
-            if name_upper in checked:
-                continue
-            checked.add(name_upper)
-            if allowed_schemas:
-                if name_upper not in allowed_schemas:
-                    return f"安全性限制：禁止跨SCHEMA操作，'{name}' 不在允许列表中"
-            else:
-                default = DB_CONFIG.get('schema', '').upper()
-                if name_upper != default:
-                    return f"安全性限制：禁止跨SCHEMA操作。仅允许操作模式: {default}"
+    metadata_err = _metadata_owner_filter_error(tokens, allowed_schemas)
+    if metadata_err:
+        return metadata_err
 
-        for name, _ in unquoted_refs:
-            name_upper = name.upper()
-            if name_upper in checked:
-                continue
-            if name_upper in aliases:
-                continue
-            checked.add(name_upper)
-            if allowed_schemas:
-                if name_upper not in allowed_schemas:
-                    return f"安全性限制：禁止跨SCHEMA操作，'{name}' 不在允许列表中"
-            else:
-                default = DB_CONFIG.get('schema', '').upper()
-                if name_upper != default:
-                    return f"安全性限制：禁止跨SCHEMA操作。仅允许操作模式: {default}"
-
-    owner_match = re.search(r"OWNER\s*[=<>]+\s*['\"](.+?)['\"]", sql_upper)
-    if owner_match:
-        found_owner = owner_match.group(1).strip()
-        if allowed_schemas:
-            if found_owner not in allowed_schemas:
-                return f"安全性限制：禁止查询非允许SCHEMA ({', '.join(allowed_schemas)}) 的元数据"
-        else:
-            default = DB_CONFIG.get('schema', '').upper()
-            if found_owner != default:
-                return f"安全性限制：禁止查询非本SCHEMA ({default}) 的元数据"
+    qualified_err = _qualified_identifier_error(tokens, allowed_schemas)
+    if qualified_err:
+        return qualified_err
 
     return None
 
@@ -233,32 +565,6 @@ def _check_read_only(sql: str) -> Optional[str]:
     if first_word not in READONLY_KEYWORDS:
         return f"只读模式已开启，仅允许查询操作（SELECT/WITH/EXPLAIN/SHOW/DESCRIBE），当前语句类型: {first_word}"
     return None
-
-
-def _prefix_schema_for_ddl(sql: str, schema: str) -> str:
-    sql_upper = sql.upper().strip()
-    ddl_prefixes = {
-        'CREATE TABLE': r'(CREATE\s+TABLE\s+)(?!"[^"]+"\.)("?\w+"?)',
-        'DROP TABLE': r'(DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?)(?!"[^"]+"\.)("?\w+"?)',
-        'ALTER TABLE': r'(ALTER\s+TABLE\s+)(?!"[^"]+"\.)("?\w+"?)',
-        'CREATE INDEX': r'(CREATE\s+(?:UNIQUE\s+)?INDEX\s+\S+\s+ON\s+)(?!"[^"]+"\.)("?\w+"?)',
-        'DROP INDEX': None,
-        'TRUNCATE TABLE': r'(TRUNCATE\s+TABLE\s+)(?!"[^"]+"\.)("?\w+"?)',
-        'COMMENT ON TABLE': r'(COMMENT\s+ON\s+TABLE\s+)(?!"[^"]+"\.)("?\w+"?)',
-        'COMMENT ON COLUMN': r'(COMMENT\s+ON\s+COLUMN\s+)(?!"[^"]+"\.)("?\w+"?)',
-    }
-
-    for keyword, pattern in ddl_prefixes.items():
-        if sql_upper.startswith(keyword) and pattern:
-            match = re.search(pattern, sql, re.IGNORECASE)
-            if match:
-                prefix = match.group(1)
-                table_name = match.group(2)
-                if '.' not in table_name:
-                    new_sql = sql[:match.start(2)] + f'"{schema}".' + table_name + sql[match.end(2):]
-                    logger.info("DDL 自动添加 Schema 前缀: %s → %s", table_name, f'"{schema}".{table_name}')
-                    return new_sql
-    return sql
 
 
 @mcp.tool()
@@ -316,10 +622,6 @@ def execute_sql(
 
     sql_upper = sql.upper().strip()
     is_select = sql_upper.startswith(('SELECT', 'WITH'))
-    is_ddl = sql_upper.startswith(('CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'COMMENT'))
-
-    if is_ddl:
-        sql = _prefix_schema_for_ddl(sql, schema)
 
     if is_select and fetch_results and (limit is not None or offset is not None):
         effective_limit = limit if limit is not None else 1000
