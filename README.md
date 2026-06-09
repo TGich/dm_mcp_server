@@ -18,6 +18,7 @@
 - 🔀 **多 Schema 支持**: 支持配置多个允许的 Schema，可在允许范围内自由切换。
 - 🔒 **只读模式**: 可选开启只读模式，禁止所有写操作（INSERT/UPDATE/DELETE/DDL）。
 - 📄 **分页查询**: `execute_sql` 支持 `limit` / `offset` 参数，避免大数据量一次性返回。
+- 📝 **批量字段注释**: 支持一次性执行多条 `COMMENT ON COLUMN` 字段注释语句，减少 AI 与 MCP 的多轮交互。
 - 🛠️ **多维工具集**: 提供从基础 SQL 执行到模式元数据管理的 7 大核心工具。
 - 🌏 **编码优化**: 针对 Windows 终端及达梦 `UTF-8` 编码进行了专项适配。
 - ⚡ **现代管理**: 使用 `uv` 进行依赖锁定与高性能运行时管理。
@@ -68,18 +69,28 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
    - **参数**: `sql` (字符串), `fetch_results` (布尔值，默认 true), `limit` (整数，可选), `offset` (整数，可选)。
    - **功能**: 执行 SQL 语句。涉及 `SELECT` 时返回字典列表。支持分页。内置多层安全审查（注入检测、跨 Schema 检测、只读模式检测）。
 
-3. **`list_tables`**
+3. **`batch_comment_columns_sql`**
+   - **参数**: `sql` (字符串), `stop_on_error` (布尔值，默认 true)。
+   - **功能**: 批量执行字段注释 SQL。仅允许 `COMMENT ON COLUMN 表名.字段名 IS '注释内容'` 或 `COMMENT ON COLUMN SCHEMA.表名.字段名 IS '注释内容'` 语句，禁止混入其他 SQL。
+   - **示例**:
+     ```sql
+     COMMENT ON COLUMN USER_INFO.ID IS '主键ID';
+     COMMENT ON COLUMN USER_INFO.USER_NAME IS '用户名称';
+     COMMENT ON COLUMN USER_INFO.PHONE IS '手机号';
+     ```
+
+4. **`list_tables`**
    - **参数**: `schema` (字符串，可选)。
    - **功能**: 列出指定模式下的所有表名。不指定则查询默认 Schema。
 
-4. **`count_tables`**
+5. **`count_tables`**
    - **参数**: `schema` (字符串，可选)。
    - **功能**: 统计指定模式下的总表数。不指定则统计默认 Schema。
 
-5. **`get_current_schema`**
+6. **`get_current_schema`**
    - **功能**: 返回当前 Schema、允许的 Schema 列表、只读模式状态。
 
-6. **`switch_schema`**
+7. **`switch_schema`**
    - **参数**: `schema` (字符串)。
    - **功能**: 切换当前操作的 Schema。仅在配置了 `DAMENG_ALLOWED_SCHEMAS` 时可用，且目标 Schema 必须在允许列表中。
 
@@ -93,7 +104,7 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
 - **跨 Schema 检测**: 拦截包含点号 (`.`) 前缀且非允许模式的 SQL 标识符（例如禁止查询 `OTHER_SCHEMA.TABLE`）。
 - **元数据保护**: 在查询 `ALL_TABLES` 等系统视图时，如果检测到试图查询非允许模式的 `OWNER`，将直接拦截。
 - **只读模式**: 开启后，仅允许 `SELECT`、`WITH`、`EXPLAIN`、`SHOW`、`DESCRIBE` 等查询语句，禁止所有写操作和 DDL。
-- **DDL/DCL 精细化控制** (v2.6.0+):
+- **DDL/DCL 精细化控制** (v2.6.1+):
   - **允许**: `CREATE TABLE`、`ALTER TABLE`、`DROP TABLE`、`CREATE INDEX`、`ALTER INDEX`、`DROP INDEX`、`RENAME`、`COMMENT ON`、`TRUNCATE`。
   - **拦截**: `GRANT`/`REVOKE`（权限变更）、`CREATE VIEW/PROCEDURE` 等非 TABLE/INDEX 类型的 DDL。
   - **智能识别**: 正确区分 SQL 字符串值中的关键词与实际 DDL/DCL 语句，INSERT/UPDATE 中包含如 `'DROP TABLE x'` 的字符串值不会被误拦截。
@@ -110,7 +121,7 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
     "dm_mcp_server": {
       "command": "uvx",
       "args": [
-        "dm-mcp-server"
+        "dm-mcp-server@latest"
       ],
       "env": {
         "DAMENG_HOST": "192.168.x.x",
@@ -132,7 +143,7 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
     "dm_mcp_server": {
       "command": "uvx",
       "args": [
-        "dm-mcp-server"
+        "dm-mcp-server@latest"
       ],
       "env": {
         "DAMENG_HOST": "192.168.x.x",
