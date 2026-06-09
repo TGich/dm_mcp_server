@@ -168,6 +168,86 @@ def resp(status: str, **kwargs):
     }
 
 
+def _split_sql_statements(sql: str) -> List[str]:
+    statements: List[str] = []
+    start = 0
+    i = 0
+    length = len(sql)
+    in_single_quote = False
+    in_double_quote = False
+    in_line_comment = False
+    in_block_comment = False
+
+    while i < length:
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < length else ""
+
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+
+        if in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+
+        if in_single_quote:
+            if ch == "'":
+                if nxt == "'":
+                    i += 2
+                    continue
+                in_single_quote = False
+            i += 1
+            continue
+
+        if in_double_quote:
+            if ch == '"':
+                if nxt == '"':
+                    i += 2
+                    continue
+                in_double_quote = False
+            i += 1
+            continue
+
+        if ch == "-" and nxt == "-":
+            in_line_comment = True
+            i += 2
+            continue
+
+        if ch == "/" and nxt == "*":
+            in_block_comment = True
+            i += 2
+            continue
+
+        if ch == "'":
+            in_single_quote = True
+            i += 1
+            continue
+
+        if ch == '"':
+            in_double_quote = True
+            i += 1
+            continue
+
+        if ch == ";":
+            statement = sql[start:i].strip()
+            if statement:
+                statements.append(statement)
+            start = i + 1
+
+        i += 1
+
+    tail = sql[start:].strip()
+    if tail:
+        statements.append(tail)
+    return statements
+
+
 def _is_identifier_start(ch: str) -> bool:
     return ch == "_" or ch.isalpha()
 
@@ -557,6 +637,51 @@ def _validate_sql_security(sql: str, allowed_schemas: Optional[List[str]]) -> Op
     return None
 
 
+def _validate_column_comment_statement(
+    statement: str,
+    allowed_schemas: Optional[List[str]],
+) -> Optional[str]:
+    tokens = _tokenize_sql(statement)
+    dangerous_err = _outside_literal_danger(tokens)
+    if dangerous_err:
+        return dangerous_err
+
+    if len(tokens) < 8:
+        return "仅允许 COMMENT ON COLUMN 表名.字段名 IS '注释内容' 语句"
+
+    if (
+        _token_upper(tokens[0]) != "COMMENT"
+        or _token_upper(tokens[1]) != "ON"
+        or _token_upper(tokens[2]) != "COLUMN"
+    ):
+        return "仅允许批量执行 COMMENT ON COLUMN 字段注释语句"
+
+    names, next_index = _identifier_chain(tokens, 3)
+    if len(names) not in {2, 3}:
+        return "字段注释目标必须是 表名.字段名 或 SCHEMA.表名.字段名"
+
+    if next_index >= len(tokens) or _token_upper(tokens[next_index]) != "IS":
+        return "字段注释语句缺少 IS 关键字"
+
+    if next_index + 1 >= len(tokens) or tokens[next_index + 1][0] != "STRING":
+        return "字段注释内容必须使用字符串字面量"
+
+    if next_index + 2 != len(tokens):
+        return "字段注释语句包含不允许的额外内容"
+
+    if len(names) == 3:
+        schema_name = names[0].upper()
+        if allowed_schemas:
+            if schema_name not in allowed_schemas:
+                return f"安全性限制：禁止跨SCHEMA操作，'{names[0]}' 不在允许列表中"
+        else:
+            default = (DB_CONFIG or {}).get('schema', '').upper()
+            if schema_name != default:
+                return f"安全性限制：禁止跨SCHEMA操作。仅允许操作模式: {default}"
+
+    return None
+
+
 def _check_read_only(sql: str) -> Optional[str]:
     if not DB_CONFIG or not DB_CONFIG.get('read_only'):
         return None
@@ -587,6 +712,81 @@ def test_connection() -> Dict[str, Any]:
             )
     except Exception as e:
         logger.error("数据库连接测试失败: %s", e)
+        return resp("error", message=str(e))
+
+
+@mcp.tool()
+def batch_comment_columns_sql(
+    sql: str,
+    stop_on_error: bool = True,
+) -> Dict[str, Any]:
+    """批量执行字段注释 SQL，仅允许 COMMENT ON COLUMN 语句
+
+    参数:
+        sql: 多条 COMMENT ON COLUMN 语句，可用分号分隔
+        stop_on_error: 执行阶段遇到错误是否停止
+    """
+    if not DB_CONFIG:
+        return resp("error", message="缺失环境变量配置")
+
+    schema = DB_CONFIG.get('schema')
+    if not schema:
+        return resp("error", message="安全性错误：必须设置 DAMENG_SCHEMA 环境变量")
+
+    if DB_CONFIG.get('read_only'):
+        return resp("error", message="只读模式已开启，禁止执行字段注释修改")
+
+    statements = _split_sql_statements(sql)
+    if not statements:
+        return resp("error", message="未提供可执行的字段注释 SQL")
+
+    for index, statement in enumerate(statements):
+        err = _validate_column_comment_statement(statement, DB_CONFIG.get('allowed_schemas'))
+        if err:
+            return resp(
+                "error",
+                message=err,
+                failed_index=index,
+                statement_count=len(statements),
+            )
+
+    results = []
+    has_error = False
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SET SCHEMA \"{schema}\"")
+
+            for index, statement in enumerate(statements):
+                try:
+                    cursor.execute(statement)
+                    results.append(
+                        {
+                            "statement_index": index,
+                            "status": "success",
+                            "affected_rows": cursor.rowcount,
+                        }
+                    )
+                except Exception as e:
+                    logger.error("字段注释语句执行失败: %s", e)
+                    has_error = True
+                    results.append(
+                        {
+                            "statement_index": index,
+                            "status": "error",
+                            "message": str(e),
+                        }
+                    )
+                    if stop_on_error:
+                        break
+
+        return resp(
+            "error" if has_error and stop_on_error else "success",
+            statement_count=len(statements),
+            results=results,
+        )
+    except Exception as e:
+        logger.error("批量字段注释执行失败: %s", e)
         return resp("error", message=str(e))
 
 
