@@ -1,7 +1,17 @@
 /.cursorrules
 /.cursor/
 /.venv/
+/build/
 /dist/
+/dist-check/
 /dm_mcp_server.egg-info/
+/dm_mcp_server-*/
+/.uv-cache/
+/.uv-cache-test/
+/.uv-python/
+/.claude/
 .idea
 /.env
+/.env.*
+/__pycache__/
+*.py[cod]

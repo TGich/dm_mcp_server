@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -21,8 +21,6 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -32,7 +30,6 @@ requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.0.0",
     "dmPython>=2.0.0",
-    "setuptools-scm>=6.2",
 ]
 
 [project.urls]
@@ -46,6 +43,3 @@ dm-mcp-server = "dm_mcp_server:main"
 
 [tool.setuptools]
 py-modules = ["dm_mcp_server"]
-
-[tool.setuptools.package-data]
-"*" = ["*.py", "*.md", "*.txt", "*.toml"]

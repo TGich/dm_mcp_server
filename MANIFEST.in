@@ -2,13 +2,34 @@ include README.md
 include requirements.txt
 include LICENSE
 include dm_mcp_server.py
-recursive-include * *.py
-recursive-exclude * __pycache__
-recursive-exclude * *.py[co]
-recursive-exclude * .DS_Store
-recursive-exclude * .git*
-recursive-exclude * .vscode
-recursive-exclude * .idea
-recursive-exclude * dist
-recursive-exclude * build
-recursive-exclude * *.egg-info
+include pyproject.toml
+
+exclude .env
+exclude .env.*
+exclude PKG-INFO
+exclude test_*.py
+exclude *_test.py
+exclude *report*.json
+exclude TEST_*.md
+exclude generate_test_report.py
+
+prune .git
+prune .github
+prune .claude
+prune .codex
+prune .vscode
+prune .idea
+prune .venv
+prune .venv.*
+prune .uv-cache
+prune .uv-cache-test
+prune .uv-python
+prune __pycache__
+prune build
+prune dist
+prune *.egg-info
+prune dm_mcp_server-*
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store

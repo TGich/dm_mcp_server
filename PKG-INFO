@@ -17,18 +17,15 @@ Classifier: Intended Audience :: Developers
 Classifier: Topic :: Database
 Classifier: Topic :: Software Development :: Libraries :: Python Modules
 Classifier: Programming Language :: Python :: 3
-Classifier: Programming Language :: Python :: 3.8
-Classifier: Programming Language :: Python :: 3.9
 Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
 Classifier: Programming Language :: Python :: 3.12
 Classifier: Operating System :: OS Independent
-Requires-Python: >=3.8
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: mcp>=1.0.0
 Requires-Dist: dmPython>=2.0.0
-Requires-Dist: setuptools-scm>=6.2
 Dynamic: author
 Dynamic: home-page
 Dynamic: license-file
