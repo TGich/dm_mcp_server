@@ -48,8 +48,8 @@ jobs:
       id-token: write
 
     environment:
-      name: pypi
-      url: https://pypi.org/project/dm-mcp-server/
+      name: dm-mcp-server
+      url: https://github.com/TGich/dm_mcp_server
 
     steps:
       - name: Download distribution artifacts
