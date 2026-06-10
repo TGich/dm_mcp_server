@@ -48,7 +48,7 @@ jobs:
       id-token: write
 
     environment:
-      name: dm-mcp-server
+      name: dameng-mcp-server
       url: https://github.com/TGich/dm_mcp_server
 
     steps:
