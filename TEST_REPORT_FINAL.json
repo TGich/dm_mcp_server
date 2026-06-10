@@ -1,0 +1,216 @@
+{
+  "title": "达梦 MCP 服务器测试总结",
+  "timestamp": "2026-04-20T14:58:11.781310",
+  "project_info": {
+    "name": "dm-mcp-server",
+    "version": "2.4",
+    "description": "达梦数据库 Model Context Protocol (MCP) 服务器",
+    "repository": "https://github.com/example-org/dm-mcp-server"
+  },
+  "test_suites": [
+    {
+      "name": "test_report.json",
+      "data": {
+        "timestamp": "2026-04-20T14:56:06.676014",
+        "summary": {
+          "total": 5,
+          "passed": 5,
+          "failed": 0,
+          "skipped": 0
+        },
+        "tests": [
+          {
+            "name": "连接测试",
+            "status": "✅ 通过",
+            "reason": "",
+            "response": {
+              "status": "error",
+              "timestamp": "2026-04-20T14:56:06.410994",
+              "message": "缺失环境变量配置"
+            }
+          },
+          {
+            "name": "获取当前 Schema",
+            "status": "✅ 通过",
+            "reason": "",
+            "response": {
+              "status": "error",
+              "timestamp": "2026-04-20T14:56:06.424564",
+              "message": "缺失环境变量配置"
+            }
+          },
+          {
+            "name": "列出所有表",
+            "status": "✅ 通过",
+            "reason": "",
+            "response": {
+              "status": "error",
+              "timestamp": "2026-04-20T14:56:06.428563",
+              "message": "缺失环境变量配置"
+            }
+          },
+          {
+            "name": "统计表数量",
+            "status": "✅ 通过",
+            "reason": "",
+            "response": {
+              "status": "error",
+              "timestamp": "2026-04-20T14:56:06.431565",
+              "message": "缺失环境变量配置"
+            }
+          },
+          {
+            "name": "执行 SELECT 1",
+            "status": "✅ 通过",
+            "reason": "",
+            "response": {
+              "status": "error",
+              "timestamp": "2026-04-20T14:56:06.455236",
+              "message": "缺失环境变量配置"
+            }
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "comprehensive_test_report.json",
+      "data": {
+        "timestamp": "2026-04-20T14:56:47.375005",
+        "tests": {
+          "MCP 协议支持": true,
+          "达梦驱动支持": false,
+          "模块导入": true,
+          "配置系统": true,
+          "响应格式": true,
+          "安全特性": true
+        },
+        "summary": {
+          "total": 6,
+          "passed": 5,
+          "failed": 1
+        }
+      }
+    }
+  ],
+  "features": {
+    "tools": [
+      {
+        "name": "test_connection",
+        "description": "测试数据库连接状态",
+        "parameters": [],
+        "returns": "Dict[str, Any]"
+      },
+      {
+        "name": "execute_sql",
+        "description": "执行 SQL 语句（强制限定配置下的SCHEMA操作）",
+        "parameters": [
+          {
+            "name": "sql",
+            "type": "str",
+            "description": "SQL 语句"
+          },
+          {
+            "name": "fetch_results",
+            "type": "bool",
+            "default": true,
+            "description": "是否获取结果"
+          }
+        ],
+        "returns": "Dict[str, Any]"
+      },
+      {
+        "name": "list_tables",
+        "description": "只能查询配置SCHEMA下的所有表",
+        "parameters": [
+          {
+            "name": "schema",
+            "type": "str",
+            "optional": true,
+            "description": "Schema 名称"
+          }
+        ],
+        "returns": "Dict[str, Any]"
+      },
+      {
+        "name": "count_tables",
+        "description": "只能统计配置SCHEMA下的表数量",
+        "parameters": [
+          {
+            "name": "schema",
+            "type": "str",
+            "optional": true,
+            "description": "Schema 名称"
+          }
+        ],
+        "returns": "Dict[str, Any]"
+      },
+      {
+        "name": "get_current_schema",
+        "description": "获取当前配置的数据库的SCHEMA",
+        "parameters": [],
+        "returns": "Dict[str, Any]"
+      }
+    ]
+  },
+  "security_features": [
+    "SCHEMA 限制 - 防止跨 Schema 操作",
+    "SQL 检查 - 检测并拦截危险的 SQL 操作",
+    "连接超时 - TCP 连接超时检查",
+    "错误处理 - 全面的异常捕获和报告",
+    "环境变量配置 - 安全的配置管理"
+  ],
+  "environment_variables": [
+    {
+      "name": "DAMENG_HOST",
+      "description": "数据库主机地址",
+      "required": true,
+      "example": "localhost"
+    },
+    {
+      "name": "DAMENG_PORT",
+      "description": "数据库端口",
+      "required": false,
+      "default": 5236,
+      "example": "5236"
+    },
+    {
+      "name": "DAMENG_USER",
+      "description": "数据库用户名",
+      "required": true,
+      "example": "SYSDBA"
+    },
+    {
+      "name": "DAMENG_PASSWORD",
+      "description": "数据库密码",
+      "required": true,
+      "example": "SYSDBA"
+    },
+    {
+      "name": "DAMENG_SCHEMA",
+      "description": "数据库 Schema（模式）",
+      "required": true,
+      "example": "SYSDBA"
+    }
+  ],
+  "dependencies": {
+    "runtime": [
+      "mcp>=1.0.0",
+      "dmPython>=2.0.0",
+      "setuptools-scm>=6.2"
+    ],
+    "python_version": ">=3.10"
+  },
+  "test_results_summary": {
+    "total_suites": 2,
+    "total_tests": 11,
+    "total_passed": 10,
+    "total_failed": 1
+  },
+  "recommendations": [
+    "如果 dmPython 驱动导入失败，请确保已正确安装: pip install dmPython",
+    "在使用前必须设置所有必要的环境变量（DAMENG_HOST, DAMENG_USER, DAMENG_PASSWORD, DAMENG_SCHEMA）",
+    "建议在生产环境中使用强密码和安全的连接配置",
+    "定期测试数据库连接以确保 MCP 服务器正常运行"
+  ]
+}

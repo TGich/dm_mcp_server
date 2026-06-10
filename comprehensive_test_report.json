@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-04-22T14:53:47.447041",
+  "tests": {
+    "MCP 协议支持": true,
+    "达梦驱动支持": true,
+    "模块导入": true,
+    "配置系统": true,
+    "响应格式": true,
+    "安全特性": true
+  },
+  "summary": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0
+  }
+}
