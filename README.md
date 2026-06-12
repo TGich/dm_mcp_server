@@ -19,7 +19,7 @@
 - 🔒 **只读模式**: 可选开启只读模式，禁止所有写操作（INSERT/UPDATE/DELETE/DDL）。
 - 📄 **分页查询**: `execute_sql` 支持 `limit` / `offset` 参数，避免大数据量一次性返回。
 - 📝 **批量字段注释**: 支持一次性执行多条 `COMMENT ON COLUMN` 字段注释语句，减少 AI 与 MCP 的多轮交互。
-- 🛠️ **多维工具集**: 提供从基础 SQL 执行到模式元数据管理的 7 大核心工具。
+- 🛠️ **多维工具集**: 提供从基础 SQL 执行到模式元数据管理的 9 大核心工具。
 - 🌏 **编码优化**: 针对 Windows 终端及达梦 `UTF-8` 编码进行了专项适配。
 - ⚡ **现代管理**: 使用 `uv` 进行依赖锁定与高性能运行时管理。
 
@@ -47,20 +47,23 @@ uv sync
 | `DAMENG_ALLOWED_SCHEMAS` | 允许访问的模式列表（逗号分隔） | 否 | 仅 `DAMENG_SCHEMA` |
 | `DAMENG_READ_ONLY` | 只读模式（true/false） | 否 | false |
 | `DAMENG_LOG_LEVEL` | 日志级别（DEBUG/INFO/WARNING/ERROR） | 否 | INFO |
+| `DAMENG_SQL_FILE_ALLOWED_DIRS` | 允许 `execute_sql_file` 读取 SQL 文件的目录列表，多个目录按系统路径分隔符分隔 | 否 | 当前工作目录 |
+
+> `DAMENG_SQL_FILE_ALLOWED_DIRS` 示例：Windows 单目录可写 `E:\sql`，多目录用分号分隔如 `E:\sql;D:\dm-sql`；Linux/macOS 多目录用冒号分隔如 `/data/sql:/tmp/dm-sql`。
 
 ### 3. 运行服务器
 
 ```bash
 # Windows (PowerShell 示例) - 单 Schema 模式
-$env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD="your_password"; $env:DAMENG_SCHEMA="your_schema"; uv run dm-mcp-server
+$env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD="your_password"; $env:DAMENG_SCHEMA="your_schema"; $env:DAMENG_SQL_FILE_ALLOWED_DIRS="E:\sql"; uv run dm-mcp-server
 
 # Windows (PowerShell 示例) - 多 Schema + 只读模式
-$env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD="your_password"; $env:DAMENG_SCHEMA="schema_a"; $env:DAMENG_ALLOWED_SCHEMAS="schema_a,schema_b,schema_c"; $env:DAMENG_READ_ONLY="true"; uv run dm-mcp-server
+$env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD="your_password"; $env:DAMENG_SCHEMA="schema_a"; $env:DAMENG_ALLOWED_SCHEMAS="schema_a,schema_b,schema_c"; $env:DAMENG_READ_ONLY="true"; $env:DAMENG_SQL_FILE_ALLOWED_DIRS="E:\sql;D:\dm-sql"; uv run dm-mcp-server
 ```
 
 ## 🛠️ 提供工具
 
-服务器暴露了以下 7 个工具供 LLM 调用：
+服务器暴露了以下 9 个工具供 LLM 调用：
 
 1. **`test_connection`**
    - **功能**: 验证数据库连接状态，返回当前 Schema、允许的 Schema 列表、只读模式状态。
@@ -69,7 +72,18 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
    - **参数**: `sql` (字符串), `fetch_results` (布尔值，默认 true), `limit` (整数，可选), `offset` (整数，可选)。
    - **功能**: 执行 SQL 语句。涉及 `SELECT` 时返回字典列表。支持分页。内置多层安全审查（注入检测、跨 Schema 检测、只读模式检测）。
 
-3. **`batch_comment_columns_sql`**
+3. **`execute_sql_file`**
+   - **参数**: `file_path` (字符串), `encoding` (字符串，默认 utf-8), `stop_on_error` (布尔值，默认 true), `fetch_results` (布尔值，默认 false), `limit` (整数，可选), `offset` (整数，可选)。
+   - **功能**: 读取并执行 `.sql` 文件，适合超长 INSERT、批量初始化脚本等 MCP 单次调用无法承载的场景。文件必须位于 `DAMENG_SQL_FILE_ALLOWED_DIRS` 白名单目录内；AI 可先调用 `get_sql_file_allowed_dirs` 获取可写目录，再将文件保存到该目录。支持一个文件内包含多条 SQL；执行前会剥离 `--` 和 `/* */` 注释，再逐条复用现有只读模式与 Schema 白名单安全校验。
+   - **示例**:
+     ```text
+     execute_sql_file(file_path="E:\\sql\\bulk_insert.sql")
+     ```
+
+4. **`get_sql_file_allowed_dirs`**
+   - **功能**: 返回 `execute_sql_file` 当前允许读取的目录列表、目录是否存在、是否可写、推荐写入目录、路径分隔符和 `.sql` 扩展名要求，方便 AI 先落盘 SQL 文件再执行。
+
+5. **`batch_comment_columns_sql`**
    - **参数**: `sql` (字符串), `stop_on_error` (布尔值，默认 true)。
    - **功能**: 批量执行字段注释 SQL。仅允许 `COMMENT ON COLUMN 表名.字段名 IS '注释内容'` 或 `COMMENT ON COLUMN SCHEMA.表名.字段名 IS '注释内容'` 语句，禁止混入其他 SQL。
    - **示例**:
@@ -79,18 +93,18 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
      COMMENT ON COLUMN USER_INFO.PHONE IS '手机号';
      ```
 
-4. **`list_tables`**
+6. **`list_tables`**
    - **参数**: `schema` (字符串，可选)。
    - **功能**: 列出指定模式下的所有表名。不指定则查询默认 Schema。
 
-5. **`count_tables`**
+7. **`count_tables`**
    - **参数**: `schema` (字符串，可选)。
    - **功能**: 统计指定模式下的总表数。不指定则统计默认 Schema。
 
-6. **`get_current_schema`**
+8. **`get_current_schema`**
    - **功能**: 返回当前 Schema、允许的 Schema 列表、只读模式状态。
 
-7. **`switch_schema`**
+9. **`switch_schema`**
    - **参数**: `schema` (字符串)。
    - **功能**: 切换当前操作的 Schema。仅在配置了 `DAMENG_ALLOWED_SCHEMAS` 时可用，且目标 Schema 必须在允许列表中。
 
@@ -128,7 +142,8 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
         "DAMENG_PORT": "5236",
         "DAMENG_USER": "SYSDBA",
         "DAMENG_PASSWORD": "your_password",
-        "DAMENG_SCHEMA": "your_schema"
+        "DAMENG_SCHEMA": "your_schema",
+        "DAMENG_SQL_FILE_ALLOWED_DIRS": "E:\\sql"
       }
     }
   }
@@ -153,7 +168,8 @@ $env:DAMENG_HOST="192.168.x.x"; $env:DAMENG_USER="SYSDBA"; $env:DAMENG_PASSWORD=
         "DAMENG_SCHEMA": "schema_a",
         "DAMENG_ALLOWED_SCHEMAS": "schema_a,schema_b,schema_c",
         "DAMENG_READ_ONLY": "false",
-        "DAMENG_LOG_LEVEL": "INFO"
+        "DAMENG_LOG_LEVEL": "INFO",
+        "DAMENG_SQL_FILE_ALLOWED_DIRS": "E:\\sql;D:\\dm-sql"
       }
     }
   }

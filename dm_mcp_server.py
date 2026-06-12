@@ -10,6 +10,7 @@ import re
 import sys
 import datetime
 import logging
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Set
 from contextlib import contextmanager
 from mcp.server.fastmcp import FastMCP
@@ -78,6 +79,14 @@ def _parse_allowed_schemas() -> Optional[List[str]]:
     return schemas if schemas else None
 
 
+def _parse_sql_file_allowed_dirs() -> List[Path]:
+    raw = os.environ.get("DAMENG_SQL_FILE_ALLOWED_DIRS", "").strip()
+    if not raw:
+        return [Path.cwd().resolve()]
+    dirs = [Path(p.strip()).expanduser().resolve() for p in raw.split(os.pathsep) if p.strip()]
+    return dirs if dirs else [Path.cwd().resolve()]
+
+
 def get_config():
     config = {
         'host': os.environ.get("DAMENG_HOST"),
@@ -108,6 +117,7 @@ def get_config():
 
 
 DB_CONFIG = get_config()
+SQL_FILE_ALLOWED_DIRS = _parse_sql_file_allowed_dirs()
 
 
 def _resolve_schema(requested_schema: Optional[str]) -> Optional[str]:
@@ -246,6 +256,104 @@ def _split_sql_statements(sql: str) -> List[str]:
     if tail:
         statements.append(tail)
     return statements
+
+
+def _strip_sql_comments(sql: str) -> str:
+    chars: List[str] = []
+    i = 0
+    length = len(sql)
+    in_single_quote = False
+    in_double_quote = False
+
+    while i < length:
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < length else ""
+
+        if in_single_quote:
+            chars.append(ch)
+            if ch == "'":
+                if nxt == "'":
+                    chars.append(nxt)
+                    i += 2
+                    continue
+                in_single_quote = False
+            i += 1
+            continue
+
+        if in_double_quote:
+            chars.append(ch)
+            if ch == '"':
+                if nxt == '"':
+                    chars.append(nxt)
+                    i += 2
+                    continue
+                in_double_quote = False
+            i += 1
+            continue
+
+        if ch == "'":
+            in_single_quote = True
+            chars.append(ch)
+            i += 1
+            continue
+
+        if ch == '"':
+            in_double_quote = True
+            chars.append(ch)
+            i += 1
+            continue
+
+        if ch == "-" and nxt == "-":
+            i += 2
+            while i < length and sql[i] not in "\r\n":
+                i += 1
+            if i < length:
+                chars.append(sql[i])
+                i += 1
+            continue
+
+        if ch == "/" and nxt == "*":
+            chars.append(" ")
+            i += 2
+            while i < length:
+                if sql[i] == "*" and i + 1 < length and sql[i + 1] == "/":
+                    i += 2
+                    break
+                if sql[i] in "\r\n":
+                    chars.append(sql[i])
+                else:
+                    chars.append(" ")
+                i += 1
+            chars.append(" ")
+            continue
+
+        chars.append(ch)
+        i += 1
+
+    return "".join(chars)
+
+
+def _path_is_under(path: Path, parent: Path) -> bool:
+    try:
+        os.path.commonpath([str(path), str(parent)])
+    except ValueError:
+        return False
+    return os.path.commonpath([str(path), str(parent)]) == str(parent)
+
+
+def _resolve_sql_file_path(file_path: str) -> Path:
+    if not file_path or not str(file_path).strip():
+        raise ValueError("SQL file path is required")
+
+    path = Path(str(file_path).strip()).expanduser().resolve()
+    if path.suffix.lower() != ".sql":
+        raise ValueError("SQL file path must point to a .sql file")
+    if not path.is_file():
+        raise ValueError(f"SQL file path does not exist or is not a file: {path}")
+    if not any(_path_is_under(path, allowed_dir) for allowed_dir in SQL_FILE_ALLOWED_DIRS):
+        allowed_text = ", ".join(str(p) for p in SQL_FILE_ALLOWED_DIRS)
+        raise ValueError(f"SQL file path is outside allowed directories: {allowed_text}")
+    return path
 
 
 def _is_identifier_start(ch: str) -> bool:
@@ -788,6 +896,166 @@ def batch_comment_columns_sql(
     except Exception as e:
         logger.error("批量字段注释执行失败: %s", e)
         return resp("error", message=str(e))
+
+
+@mcp.tool()
+def execute_sql_file(
+    file_path: str,
+    encoding: str = "utf-8",
+    stop_on_error: bool = True,
+    fetch_results: bool = False,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+) -> Dict[str, Any]:
+    """读取并执行 SQL 文件，用于处理超长 SQL。
+
+    文件路径必须位于 DAMENG_SQL_FILE_ALLOWED_DIRS 白名单目录内。
+    文件中的 SQL 注释会在校验和执行前剥离，字符串字面量内的内容不受影响。
+    """
+    if not DB_CONFIG:
+        return resp("error", message="缺失环境变量配置")
+
+    schema = DB_CONFIG.get('schema')
+    if not schema:
+        return resp("error", message="安全性错误：必须设置 DAMENG_SCHEMA 环境变量")
+
+    try:
+        sql_path = _resolve_sql_file_path(file_path)
+        sql_text = sql_path.read_text(encoding=encoding)
+    except Exception as e:
+        return resp("error", message=str(e))
+
+    file_size = sql_path.stat().st_size
+    stripped_sql = _strip_sql_comments(sql_text)
+    statements = _split_sql_statements(stripped_sql)
+    if not statements:
+        return resp(
+            "error",
+            message="SQL 文件中未找到可执行的 SQL 语句",
+            file_path=str(sql_path),
+            file_size=file_size,
+            statement_count=0,
+        )
+
+    for index, statement in enumerate(statements):
+        read_only_err = _check_read_only(statement)
+        if read_only_err:
+            return resp(
+                "error",
+                message=read_only_err,
+                failed_index=index,
+                file_path=str(sql_path),
+                file_size=file_size,
+                statement_count=len(statements),
+            )
+
+        security_err = _validate_sql_security(statement, DB_CONFIG.get('allowed_schemas'))
+        if security_err:
+            return resp(
+                "error",
+                message=security_err,
+                failed_index=index,
+                file_path=str(sql_path),
+                file_size=file_size,
+                statement_count=len(statements),
+            )
+
+    results = []
+    has_error = False
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SET SCHEMA \"{schema}\"")
+
+            for index, statement in enumerate(statements):
+                sql_to_execute = statement
+                statement_upper = statement.upper().strip()
+                is_select = statement_upper.startswith(('SELECT', 'WITH'))
+
+                if is_select and fetch_results and (limit is not None or offset is not None):
+                    effective_limit = limit if limit is not None else 1000
+                    effective_offset = offset if offset is not None else 0
+                    sql_to_execute = f"SELECT * FROM ({statement}) LIMIT {effective_limit} OFFSET {effective_offset}"
+
+                try:
+                    cursor.execute(sql_to_execute)
+                    item = {
+                        "statement_index": index,
+                        "status": "success",
+                    }
+                    if fetch_results and is_select:
+                        rows = cursor.fetchall()
+                        cols = [d[0] for d in cursor.description] if cursor.description else []
+                        item["data"] = [dict(zip(cols, r)) for r in rows]
+                        item["count"] = len(item["data"])
+                        if limit is not None or offset is not None:
+                            item["pagination"] = {
+                                "limit": limit,
+                                "offset": offset,
+                            }
+                    else:
+                        item["affected_rows"] = cursor.rowcount
+                    results.append(item)
+                except Exception as e:
+                    logger.error("SQL 文件语句执行失败: %s", e)
+                    has_error = True
+                    results.append(
+                        {
+                            "statement_index": index,
+                            "status": "error",
+                            "message": str(e),
+                        }
+                    )
+                    if stop_on_error:
+                        break
+
+        return resp(
+            "error" if has_error and stop_on_error else "success",
+            file_path=str(sql_path),
+            file_size=file_size,
+            statement_count=len(statements),
+            results=results,
+        )
+    except Exception as e:
+        logger.error("SQL 文件执行失败: %s", e)
+        return resp(
+            "error",
+            message=str(e),
+            file_path=str(sql_path),
+            file_size=file_size,
+            statement_count=len(statements),
+        )
+
+
+@mcp.tool()
+def get_sql_file_allowed_dirs() -> Dict[str, Any]:
+    """获取 execute_sql_file 允许读取的 SQL 文件目录。"""
+    directories = []
+    recommended_dir = None
+
+    for allowed_dir in SQL_FILE_ALLOWED_DIRS:
+        exists = allowed_dir.exists()
+        is_dir = allowed_dir.is_dir()
+        writable = exists and is_dir and os.access(allowed_dir, os.W_OK)
+        item = {
+            "path": str(allowed_dir),
+            "exists": exists,
+            "is_dir": is_dir,
+            "writable": writable,
+        }
+        directories.append(item)
+        if recommended_dir is None and writable:
+            recommended_dir = str(allowed_dir)
+
+    return resp(
+        "success",
+        allowed_dirs=[str(path) for path in SQL_FILE_ALLOWED_DIRS],
+        directories=directories,
+        recommended_dir=recommended_dir,
+        required_extension=".sql",
+        path_separator=os.pathsep,
+        usage="将 SQL 内容保存为 .sql 文件到 recommended_dir 或任一 writable=true 的目录后，再调用 execute_sql_file(file_path=完整文件路径)",
+    )
 
 
 @mcp.tool()
